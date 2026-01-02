@@ -81,7 +81,8 @@ io.on('connection', async (socket) => {
       password: password || null,
       hasPassword: !!password,
       players: [{ id: socket.id, name: "Player 1", ready: false, deck: null }],
-      status: 'waiting'
+      status: 'waiting',
+      started: false // ✅ evita start duplicado
     };
 
     rooms.push(room);
@@ -123,10 +124,24 @@ io.on('connection', async (socket) => {
     player.ready = !!ready;
     player.deck = deck || null;
 
-    // Se 2 jogadores e os 2 prontos, inicia partida com perspectiva "PLAYER"
-    if (room.players.length === 2 && room.players.every(p => p.ready)) {
+    // Atualiza sala antes de começar
+    await saveRooms(rooms);
+    io.to(room.id).emit('room_state', room);
+
+    // ✅ Start só uma vez, e só se 2 jogadores e 2 prontos
+    if (
+      room.players.length === 2 &&
+      room.players.every(p => p.ready) &&
+      room.status !== 'playing' &&
+      !room.started
+    ) {
       room.status = 'playing';
+      room.started = true;
       await saveRooms(rooms);
+
+      // manda update de status antes do start
+      io.to(room.id).emit('room_state', room);
+      await broadcastRooms();
 
       const p1 = room.players[0];
       const p2 = room.players[1];
@@ -134,7 +149,6 @@ io.on('connection', async (socket) => {
       const initial = createInitialState(room.players);
 
       // Envia "match_start" separado, cada um com sua perspectiva:
-      // player 1 => you=A, opp=B
       io.to(p1.id).emit('match_start', {
         matchId: room.id,
         yourRole: 'A',
@@ -142,18 +156,17 @@ io.on('connection', async (socket) => {
         opp: initial.playerB
       });
 
-      // player 2 => you=B, opp=A
       io.to(p2.id).emit('match_start', {
         matchId: room.id,
         yourRole: 'B',
         you: initial.playerB,
         opp: initial.playerA
       });
-    } else {
-      await saveRooms(rooms);
+
+      return;
     }
 
-    io.to(room.id).emit('room_state', room);
+    // se não iniciou, só atualiza lobby
     await broadcastRooms();
   });
 
@@ -165,14 +178,20 @@ io.on('connection', async (socket) => {
 
     room.players = room.players.filter(p => p.id !== socket.id);
 
-    // remove sala vazia
-    rooms = rooms.filter(r => r.players.length > 0);
-
-    await saveRooms(rooms);
-    socket.leave(room.id);
-
+    // Se ainda tem alguém na sala, reseta estado pra não travar
     if (room.players.length > 0) {
+      room.status = 'waiting';
+      room.started = false;
+      room.players.forEach(p => { p.ready = false; p.deck = null; });
+      await saveRooms(rooms);
+
+      socket.leave(room.id);
       io.to(room.id).emit('room_state', room);
+    } else {
+      // remove sala vazia
+      rooms = rooms.filter(r => r.id !== room.id);
+      await saveRooms(rooms);
+      socket.leave(room.id);
     }
 
     await broadcastRooms();
@@ -182,9 +201,20 @@ io.on('connection', async (socket) => {
   socket.on('disconnect', async () => {
     let rooms = await getRooms();
 
-    rooms.forEach(room => {
+    for (const room of rooms) {
+      const hadPlayer = room.players.some(p => p.id === socket.id);
+      if (!hadPlayer) continue;
+
       room.players = room.players.filter(p => p.id !== socket.id);
-    });
+
+      // Se sobrou alguém, reseta pra waiting (evita travar em playing)
+      if (room.players.length > 0) {
+        room.status = 'waiting';
+        room.started = false;
+        room.players.forEach(p => { p.ready = false; p.deck = null; });
+        io.to(room.id).emit('room_state', room);
+      }
+    }
 
     rooms = rooms.filter(r => r.players.length > 0);
     await saveRooms(rooms);
