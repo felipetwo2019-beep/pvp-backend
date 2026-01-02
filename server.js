@@ -44,7 +44,6 @@ async function broadcastRooms() {
 }
 
 // Estado inicial (placeholder)
-// OBS: aqui ainda é placeholder. Depois podemos montar a partir do deck.
 function createInitialState(players) {
   return {
     playerA: { hp: 1000, pi: 7 },
@@ -54,18 +53,17 @@ function createInitialState(players) {
 
 // --- Socket.IO ---
 io.on('connection', async (socket) => {
-  console.log('User connected:', socket.id);
+  console.log('[SOCKET] connected:', socket.id);
 
   // Sempre que alguém conectar, já manda a lista atual de salas
   await broadcastRooms();
 
-  // Botão "ATUALIZAR SALAS" (front emite ping_rooms)
+  // Botão "ATUALIZAR SALAS"
   socket.on('ping_rooms', async () => {
     const rooms = await getRooms();
     socket.emit('rooms_updated', rooms.map(formatRoom));
   });
 
-  // Caso queira pedir lista explicitamente
   socket.on('rooms_list', async () => {
     const rooms = await getRooms();
     socket.emit('rooms_updated', rooms.map(formatRoom));
@@ -82,7 +80,7 @@ io.on('connection', async (socket) => {
       hasPassword: !!password,
       players: [{ id: socket.id, name: "Player 1", ready: false, deck: null }],
       status: 'waiting',
-      started: false // ✅ evita start duplicado
+      started: false
     };
 
     rooms.push(room);
@@ -106,6 +104,7 @@ io.on('connection', async (socket) => {
 
     if (room.players.length >= 2) return;
 
+    // ✅ garante que guardamos o socket.id atual do jogador
     room.players.push({ id: socket.id, name: "Player 2", ready: false, deck: null });
     await saveRooms(rooms);
 
@@ -118,9 +117,17 @@ io.on('connection', async (socket) => {
   socket.on('set_ready', async ({ ready, deck }) => {
     const rooms = await getRooms();
     const room = rooms.find(r => r.players.some(p => p.id === socket.id));
-    if (!room) return;
+    if (!room) {
+      console.log('[READY] room not found for socket:', socket.id);
+      return;
+    }
 
     const player = room.players.find(p => p.id === socket.id);
+    if (!player) {
+      console.log('[READY] player not found in room for socket:', socket.id);
+      return;
+    }
+
     player.ready = !!ready;
     player.deck = deck || null;
 
@@ -128,7 +135,9 @@ io.on('connection', async (socket) => {
     await saveRooms(rooms);
     io.to(room.id).emit('room_state', room);
 
-    // ✅ Start só uma vez, e só se 2 jogadores e 2 prontos
+    console.log('[READY] room:', room.id, 'players:', room.players.map(p => ({ id: p.id, ready: p.ready })));
+
+    // ✅ Start só uma vez
     if (
       room.players.length === 2 &&
       room.players.every(p => p.ready) &&
@@ -139,7 +148,6 @@ io.on('connection', async (socket) => {
       room.started = true;
       await saveRooms(rooms);
 
-      // manda update de status antes do start
       io.to(room.id).emit('room_state', room);
       await broadcastRooms();
 
@@ -148,25 +156,29 @@ io.on('connection', async (socket) => {
 
       const initial = createInitialState(room.players);
 
-      // Envia "match_start" separado, cada um com sua perspectiva:
+      console.log('[MATCH_START] starting match for room:', room.id);
+      console.log('[MATCH_START] p1:', p1.id, 'p2:', p2.id);
+
+      // ✅ envia também initialState (compatibilidade)
       io.to(p1.id).emit('match_start', {
         matchId: room.id,
         yourRole: 'A',
         you: initial.playerA,
-        opp: initial.playerB
+        opp: initial.playerB,
+        initialState: initial
       });
 
       io.to(p2.id).emit('match_start', {
         matchId: room.id,
         yourRole: 'B',
         you: initial.playerB,
-        opp: initial.playerA
+        opp: initial.playerA,
+        initialState: initial
       });
 
       return;
     }
 
-    // se não iniciou, só atualiza lobby
     await broadcastRooms();
   });
 
@@ -178,7 +190,6 @@ io.on('connection', async (socket) => {
 
     room.players = room.players.filter(p => p.id !== socket.id);
 
-    // Se ainda tem alguém na sala, reseta estado pra não travar
     if (room.players.length > 0) {
       room.status = 'waiting';
       room.started = false;
@@ -188,7 +199,6 @@ io.on('connection', async (socket) => {
       socket.leave(room.id);
       io.to(room.id).emit('room_state', room);
     } else {
-      // remove sala vazia
       rooms = rooms.filter(r => r.id !== room.id);
       await saveRooms(rooms);
       socket.leave(room.id);
@@ -199,6 +209,8 @@ io.on('connection', async (socket) => {
 
   // Disconnect
   socket.on('disconnect', async () => {
+    console.log('[SOCKET] disconnected:', socket.id);
+
     let rooms = await getRooms();
 
     for (const room of rooms) {
@@ -207,7 +219,6 @@ io.on('connection', async (socket) => {
 
       room.players = room.players.filter(p => p.id !== socket.id);
 
-      // Se sobrou alguém, reseta pra waiting (evita travar em playing)
       if (room.players.length > 0) {
         room.status = 'waiting';
         room.started = false;
