@@ -44,6 +44,7 @@ async function broadcastRooms() {
 }
 
 // Estado inicial (placeholder)
+// OBS: aqui ainda é placeholder. Depois podemos montar a partir do deck.
 function createInitialState(players) {
   return {
     playerA: { hp: 1000, pi: 7 },
@@ -58,13 +59,13 @@ io.on('connection', async (socket) => {
   // Sempre que alguém conectar, já manda a lista atual de salas
   await broadcastRooms();
 
-  // ✅ NOVO: botão "ATUALIZAR SALAS" (front emite ping_rooms)
+  // Botão "ATUALIZAR SALAS" (front emite ping_rooms)
   socket.on('ping_rooms', async () => {
     const rooms = await getRooms();
     socket.emit('rooms_updated', rooms.map(formatRoom));
   });
 
-  // ✅ EXTRA (opcional): caso você queira pedir lista explicitamente
+  // Caso queira pedir lista explicitamente
   socket.on('rooms_list', async () => {
     const rooms = await getRooms();
     socket.emit('rooms_updated', rooms.map(formatRoom));
@@ -122,13 +123,31 @@ io.on('connection', async (socket) => {
     player.ready = !!ready;
     player.deck = deck || null;
 
-    // Se 2 jogadores e os 2 prontos, inicia partida (ainda simples)
+    // Se 2 jogadores e os 2 prontos, inicia partida com perspectiva "PLAYER"
     if (room.players.length === 2 && room.players.every(p => p.ready)) {
       room.status = 'playing';
       await saveRooms(rooms);
 
-      io.to(room.id).emit('match_start', {
-        initialState: createInitialState(room.players)
+      const p1 = room.players[0];
+      const p2 = room.players[1];
+
+      const initial = createInitialState(room.players);
+
+      // Envia "match_start" separado, cada um com sua perspectiva:
+      // player 1 => you=A, opp=B
+      io.to(p1.id).emit('match_start', {
+        matchId: room.id,
+        yourRole: 'A',
+        you: initial.playerA,
+        opp: initial.playerB
+      });
+
+      // player 2 => you=B, opp=A
+      io.to(p2.id).emit('match_start', {
+        matchId: room.id,
+        yourRole: 'B',
+        you: initial.playerB,
+        opp: initial.playerA
       });
     } else {
       await saveRooms(rooms);
@@ -152,7 +171,6 @@ io.on('connection', async (socket) => {
     await saveRooms(rooms);
     socket.leave(room.id);
 
-    // opcional: avisar quem ficou na sala
     if (room.players.length > 0) {
       io.to(room.id).emit('room_state', room);
     }
