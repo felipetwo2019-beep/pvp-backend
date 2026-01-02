@@ -43,12 +43,32 @@ async function broadcastRooms() {
   io.emit("rooms_updated", rooms.map(formatRoom));
 }
 
+// Estado inicial (placeholder)
+function createInitialState(players) {
+  return {
+    playerA: { hp: 1000, pi: 7 },
+    playerB: { hp: 1000, pi: 7 }
+  };
+}
+
 // --- Socket.IO ---
 io.on('connection', async (socket) => {
   console.log('User connected:', socket.id);
 
   // Sempre que alguém conectar, já manda a lista atual de salas
   await broadcastRooms();
+
+  // ✅ NOVO: botão "ATUALIZAR SALAS" (front emite ping_rooms)
+  socket.on('ping_rooms', async () => {
+    const rooms = await getRooms();
+    socket.emit('rooms_updated', rooms.map(formatRoom));
+  });
+
+  // ✅ EXTRA (opcional): caso você queira pedir lista explicitamente
+  socket.on('rooms_list', async () => {
+    const rooms = await getRooms();
+    socket.emit('rooms_updated', rooms.map(formatRoom));
+  });
 
   // Criar sala
   socket.on('create_room', async ({ name, password }) => {
@@ -118,7 +138,7 @@ io.on('connection', async (socket) => {
     await broadcastRooms();
   });
 
-  // Sair da sala (opcional: útil pro seu botão SAIR)
+  // Sair da sala
   socket.on('leave_room', async () => {
     let rooms = await getRooms();
     const room = rooms.find(r => r.players.some(p => p.id === socket.id));
@@ -131,6 +151,12 @@ io.on('connection', async (socket) => {
 
     await saveRooms(rooms);
     socket.leave(room.id);
+
+    // opcional: avisar quem ficou na sala
+    if (room.players.length > 0) {
+      io.to(room.id).emit('room_state', room);
+    }
+
     await broadcastRooms();
   });
 
@@ -148,14 +174,6 @@ io.on('connection', async (socket) => {
     await broadcastRooms();
   });
 });
-
-// Estado inicial (placeholder)
-function createInitialState(players) {
-  return {
-    playerA: { hp: 1000, pi: 7 },
-    playerB: { hp: 1000, pi: 7 }
-  };
-}
 
 // Start
 const PORT = process.env.PORT || 3000;
