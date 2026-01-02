@@ -30,7 +30,6 @@ const io = new Server(server, {
   pingTimeout: 20000,
   pingInterval: 25000,
 
-  // útil em alguns cenários (clientes diferentes)
   allowEIO3: true
 });
 
@@ -38,7 +37,7 @@ const io = new Server(server, {
 app.get("/", (req, res) => res.send("Servidor PVP ONLINE"));
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-// Redis (usa a variável que você colocou no Render)
+// Redis
 const redis = new Redis(process.env.REDIS_URL);
 
 // --- Redis helpers ---
@@ -92,7 +91,6 @@ io.on('connection', async (socket) => {
   // Sempre que alguém conectar, já manda a lista atual de salas
   await broadcastRooms();
 
-  // Botão "ATUALIZAR SALAS"
   socket.on('ping_rooms', async () => {
     const rooms = await getRooms();
     socket.emit('rooms_updated', rooms.map(formatRoom));
@@ -140,7 +138,7 @@ io.on('connection', async (socket) => {
 
     room.players.push({ id: socket.id, name: "Player 2", ready: false, deck: null });
 
-    // ✅ MUITO IMPORTANTE: reseta estado ao fechar 2/2 para evitar sala travada no Redis
+    // reseta estado ao fechar 2/2 (evita sala travada no Redis)
     room.status = 'waiting';
     room.started = false;
     room.players.forEach(p => { p.ready = false; });
@@ -168,22 +166,17 @@ io.on('connection', async (socket) => {
     }
 
     player.ready = !!ready;
-    player.deck = deck || null;
+    player.deck = Array.isArray(deck) ? deck : null;
 
-    // Atualiza sala antes de começar
     await saveRooms(rooms);
     io.to(room.id).emit('room_state', room);
 
-    console.log('[READY] room:', room.id, 'players:', room.players.map(p => ({ id: p.id, ready: p.ready })));
+    console.log('[READY] room:', room.id, 'players:', room.players.map(p => ({ id: p.id, ready: p.ready, deck: Array.isArray(p.deck) ? p.deck.length : null })));
 
-    // ✅ START DEFINITIVO: só depende de status, não depende de started (evita travar no Redis)
-    if (
-      room.players.length === 2 &&
-      room.players.every(p => p.ready) &&
-      room.status !== 'playing'
-    ) {
+    // Start definitivo: depende só do status
+    if (room.players.length === 2 && room.players.every(p => p.ready) && room.status !== 'playing') {
       room.status = 'playing';
-      room.started = true; // opcional: só informativo
+      room.started = true;
       await saveRooms(rooms);
 
       io.to(room.id).emit('room_state', room);
@@ -194,14 +187,21 @@ io.on('connection', async (socket) => {
 
       const initial = createInitialState(room.players);
 
+      // decks que vieram do front no set_ready
+      const p1Deck = Array.isArray(p1.deck) ? p1.deck : [];
+      const p2Deck = Array.isArray(p2.deck) ? p2.deck : [];
+
       console.log('[MATCH_START] starting match for room:', room.id);
       console.log('[MATCH_START] p1:', p1.id, 'p2:', p2.id);
 
+      // Cada um recebe sua perspectiva "PLAYER"
       io.to(p1.id).emit('match_start', {
         matchId: room.id,
         yourRole: 'A',
         you: initial.playerA,
         opp: initial.playerB,
+        youDeck: p1Deck,
+        oppDeck: p2Deck,
         initialState: initial
       });
 
@@ -210,6 +210,8 @@ io.on('connection', async (socket) => {
         yourRole: 'B',
         you: initial.playerB,
         opp: initial.playerA,
+        youDeck: p2Deck,
+        oppDeck: p1Deck,
         initialState: initial
       });
 
@@ -219,7 +221,6 @@ io.on('connection', async (socket) => {
     await broadcastRooms();
   });
 
-  // Sair da sala
   socket.on('leave_room', async () => {
     let rooms = await getRooms();
     const room = rooms.find(r => r.players.some(p => p.id === socket.id));
@@ -244,7 +245,6 @@ io.on('connection', async (socket) => {
     await broadcastRooms();
   });
 
-  // Disconnect
   socket.on('disconnect', async (reason) => {
     console.log('[SOCKET] disconnected:', socket.id, 'reason:', reason);
 
