@@ -139,6 +139,12 @@ io.on('connection', async (socket) => {
     if (room.players.length >= 2) return;
 
     room.players.push({ id: socket.id, name: "Player 2", ready: false, deck: null });
+
+    // ✅ MUITO IMPORTANTE: reseta estado ao fechar 2/2 para evitar sala travada no Redis
+    room.status = 'waiting';
+    room.started = false;
+    room.players.forEach(p => { p.ready = false; });
+
     await saveRooms(rooms);
 
     socket.join(room.id);
@@ -170,15 +176,14 @@ io.on('connection', async (socket) => {
 
     console.log('[READY] room:', room.id, 'players:', room.players.map(p => ({ id: p.id, ready: p.ready })));
 
-    // Start só uma vez
+    // ✅ START DEFINITIVO: só depende de status, não depende de started (evita travar no Redis)
     if (
       room.players.length === 2 &&
       room.players.every(p => p.ready) &&
-      room.status !== 'playing' &&
-      !room.started
+      room.status !== 'playing'
     ) {
       room.status = 'playing';
-      room.started = true;
+      room.started = true; // opcional: só informativo
       await saveRooms(rooms);
 
       io.to(room.id).emit('room_state', room);
