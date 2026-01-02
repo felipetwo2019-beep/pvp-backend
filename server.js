@@ -5,13 +5,38 @@ const cors = require('cors');
 const Redis = require("ioredis");
 
 const app = express();
-app.use(cors());
+
+// CORS (mais compatível)
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "OPTIONS"],
+  credentials: false
+}));
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
 
-// Health check
+// Socket.IO com configs anti-timeout (Render free / redes ruins)
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST", "OPTIONS"],
+    credentials: false
+  },
+
+  // deixa o server aceitar ambos (o front começa em polling)
+  transports: ["polling", "websocket"],
+
+  // timeouts mais “folgados”
+  pingTimeout: 20000,
+  pingInterval: 25000,
+
+  // útil em alguns cenários (clientes diferentes)
+  allowEIO3: true
+});
+
+// Health check / wake-up
 app.get("/", (req, res) => res.send("Servidor PVP ONLINE"));
+app.get("/health", (req, res) => res.json({ ok: true }));
 
 // Redis (usa a variável que você colocou no Render)
 const redis = new Redis(process.env.REDIS_URL);
@@ -50,6 +75,15 @@ function createInitialState(players) {
     playerB: { hp: 1000, pi: 7 }
   };
 }
+
+// Logs úteis do engine (pra debug no Render)
+io.engine.on("connection_error", (err) => {
+  console.log("[ENGINE] connection_error:", {
+    code: err.code,
+    message: err.message,
+    context: err.context
+  });
+});
 
 // --- Socket.IO ---
 io.on('connection', async (socket) => {
@@ -104,7 +138,6 @@ io.on('connection', async (socket) => {
 
     if (room.players.length >= 2) return;
 
-    // ✅ garante que guardamos o socket.id atual do jogador
     room.players.push({ id: socket.id, name: "Player 2", ready: false, deck: null });
     await saveRooms(rooms);
 
@@ -137,7 +170,7 @@ io.on('connection', async (socket) => {
 
     console.log('[READY] room:', room.id, 'players:', room.players.map(p => ({ id: p.id, ready: p.ready })));
 
-    // ✅ Start só uma vez
+    // Start só uma vez
     if (
       room.players.length === 2 &&
       room.players.every(p => p.ready) &&
@@ -159,7 +192,6 @@ io.on('connection', async (socket) => {
       console.log('[MATCH_START] starting match for room:', room.id);
       console.log('[MATCH_START] p1:', p1.id, 'p2:', p2.id);
 
-      // ✅ envia também initialState (compatibilidade)
       io.to(p1.id).emit('match_start', {
         matchId: room.id,
         yourRole: 'A',
@@ -208,8 +240,8 @@ io.on('connection', async (socket) => {
   });
 
   // Disconnect
-  socket.on('disconnect', async () => {
-    console.log('[SOCKET] disconnected:', socket.id);
+  socket.on('disconnect', async (reason) => {
+    console.log('[SOCKET] disconnected:', socket.id, 'reason:', reason);
 
     let rooms = await getRooms();
 
