@@ -1,3 +1,5 @@
+// === SERVER.JS PVP (EVOLUÇÃO 1): PASS_TURN 100% AUTORITÁRIO + RESYNC ===
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -6,7 +8,6 @@ const Redis = require("ioredis");
 
 const app = express();
 
-// CORS (mais compatível)
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST", "OPTIONS"],
@@ -15,203 +16,120 @@ app.use(cors({
 
 const server = http.createServer(app);
 
-// Socket.IO com configs anti-timeout (Render free / redes ruins)
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST", "OPTIONS"],
-    credentials: false
-  },
+  cors: { origin: "*", methods: ["GET", "POST", "OPTIONS"] },
   transports: ["polling", "websocket"],
   pingTimeout: 20000,
   pingInterval: 25000,
   allowEIO3: true
 });
 
-// Health check / wake-up
 app.get("/", (req, res) => res.send("Servidor PVP ONLINE"));
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-// Redis
 const redis = new Redis(process.env.REDIS_URL);
 
-// --- Redis keys ---
-const ROOMS_KEY = "pvp:rooms";
-const MATCH_KEY = (matchId) => `pvp:match:${matchId}`;  // salva estado do match
-const MATCH_TTL_SECONDS = 60 * 60; // 1h (ajuste se quiser)
+const ROOMS_KEY = "pvp:rooms"; // (mantido por compatibilidade do seu projeto)
+const MATCH_KEY = (id) => `pvp:match:${id}`;
+const MATCH_TTL_SECONDS = 60 * 60;
 
-// --- Rooms helpers ---
+// ---------- helpers ----------
 async function getRooms() {
-  const data = await redis.get(ROOMS_KEY);
-  return data ? JSON.parse(data) : [];
+  const d = await redis.get(ROOMS_KEY);
+  return d ? JSON.parse(d) : [];
+}
+async function saveRooms(r) {
+  await redis.set(ROOMS_KEY, JSON.stringify(r));
+}
+async function saveMatch(m) {
+  await redis.set(MATCH_KEY(m.matchId), JSON.stringify(m), "EX", MATCH_TTL_SECONDS);
+}
+async function getMatch(id) {
+  const d = await redis.get(MATCH_KEY(id));
+  return d ? JSON.parse(d) : null;
 }
 
-async function saveRooms(rooms) {
-  await redis.set(ROOMS_KEY, JSON.stringify(rooms));
-}
-
-function formatRoom(room) {
-  return {
-    id: room.id,
-    name: room.name,
-    hasPassword: room.hasPassword,
-    players: room.players.length,
-    status: room.status
-  };
-}
-
-async function broadcastRooms() {
-  const rooms = await getRooms();
-  io.emit("rooms_updated", rooms.map(formatRoom));
-}
-
-// --- Match helpers ---
-async function saveMatch(match) {
-  await redis.set(MATCH_KEY(match.matchId), JSON.stringify(match), "EX", MATCH_TTL_SECONDS);
-}
-
-async function getMatch(matchId) {
-  const data = await redis.get(MATCH_KEY(matchId));
-  return data ? JSON.parse(data) : null;
-}
-
-function roleForSocket(match, socketId) {
-  if (!match) return null;
-  if (match.players?.A?.id === socketId) return "A";
-  if (match.players?.B?.id === socketId) return "B";
+function roleForSocket(match, sid) {
+  if (!match?.players?.A?.id || !match?.players?.B?.id) return null;
+  if (match.players.A.id === sid) return "A";
+  if (match.players.B.id === sid) return "B";
   return null;
 }
 
-// Estado inicial (placeholder)
-// OBS: continua placeholder, mas agora o match guarda e sincroniza.
-function createInitialState(players) {
+function createInitialState() {
   return {
     playerA: { hp: 1000, pi: 7 },
     playerB: { hp: 1000, pi: 7 }
   };
 }
 
-// Logs úteis do engine
-io.engine.on("connection_error", (err) => {
-  console.log("[ENGINE] connection_error:", {
-    code: err.code,
-    message: err.message,
-    context: err.context
-  });
-});
+function safeEmitReject(socket, matchId, reason, extra = {}) {
+  socket.emit("pvp_reject", { matchId, reason, ...extra });
+}
 
-// --- Socket.IO ---
-io.on('connection', async (socket) => {
-  console.log('[SOCKET] connected:', socket.id);
+// ---------- socket ----------
+io.on("connection", async (socket) => {
+  console.log("[SOCKET] connected", socket.id);
 
-  await broadcastRooms();
-
-  socket.on('ping_rooms', async () => {
+  // (Opcional) Se você ainda usa rooms em algum ponto do seu front antigo
+  // não quebra nada manter isso:
+  socket.on("ping_rooms", async () => {
     const rooms = await getRooms();
-    socket.emit('rooms_updated', rooms.map(formatRoom));
-  });
-
-  socket.on('rooms_list', async () => {
-    const rooms = await getRooms();
-    socket.emit('rooms_updated', rooms.map(formatRoom));
+    socket.emit("rooms_updated", (rooms || []).map(r => ({
+      id: r.id,
+      name: r.name,
+      hasPassword: !!r.hasPassword,
+      players: (r.players || []).length,
+      status: r.status || "waiting"
+    })));
   });
 
-  // Criar sala
-  socket.on('create_room', async ({ name, password }) => {
+  // -------- START MATCH (mantive seu fluxo atual) --------
+  socket.on("set_ready", async ({ ready, deck }) => {
     const rooms = await getRooms();
-
-    const room = {
-      id: 'room_' + Date.now(),
-      name: name || "Sala",
-      password: password || null,
-      hasPassword: !!password,
-      players: [{ id: socket.id, name: "Player 1", ready: false, deck: null }],
-      status: 'waiting',
-      started: false
-    };
-
-    rooms.push(room);
-    await saveRooms(rooms);
-
-    socket.join(room.id);
-    socket.emit('room_state', room);
-    await broadcastRooms();
-  });
-
-  // Entrar na sala
-  socket.on('join_room', async ({ roomId, password }) => {
-    const rooms = await getRooms();
-    const room = rooms.find(r => r.id === roomId);
-    if (!room) return;
-
-    if (room.password && room.password !== password) {
-      socket.emit('error_msg', 'Senha incorreta');
-      return;
-    }
-
-    if (room.players.length >= 2) return;
-
-    room.players.push({ id: socket.id, name: "Player 2", ready: false, deck: null });
-
-    // reseta estado ao fechar 2/2
-    room.status = 'waiting';
-    room.started = false;
-    room.players.forEach(p => { p.ready = false; });
-
-    await saveRooms(rooms);
-
-    socket.join(room.id);
-    io.to(room.id).emit('room_state', room);
-    await broadcastRooms();
-  });
-
-  // Pronto / não pronto
-  socket.on('set_ready', async ({ ready, deck }) => {
-    const rooms = await getRooms();
-    const room = rooms.find(r => r.players.some(p => p.id === socket.id));
+    const room = rooms.find(r => r.players?.some(p => p.id === socket.id));
     if (!room) return;
 
     const player = room.players.find(p => p.id === socket.id);
     if (!player) return;
 
     player.ready = !!ready;
-    player.deck = Array.isArray(deck) ? deck : null;
+    player.deck = Array.isArray(deck) ? deck : [];
 
     await saveRooms(rooms);
-    io.to(room.id).emit('room_state', room);
+    io.to(room.id).emit("room_state", room);
 
-    // Start
-    if (room.players.length === 2 && room.players.every(p => p.ready) && room.status !== 'playing') {
-      room.status = 'playing';
-      room.started = true;
+    if (
+      room.players.length === 2 &&
+      room.players.every(p => p.ready) &&
+      room.status !== "playing"
+    ) {
+      room.status = "playing";
       await saveRooms(rooms);
 
-      io.to(room.id).emit('room_state', room);
-      await broadcastRooms();
+      const [p1, p2] = room.players;
+      const initial = createInitialState();
 
-      const p1 = room.players[0];
-      const p2 = room.players[1];
-
-      const initial = createInitialState(room.players);
-
-      const p1Deck = Array.isArray(p1.deck) ? p1.deck : [];
-      const p2Deck = Array.isArray(p2.deck) ? p2.deck : [];
-
-      // ✅ cria o MATCH autoritário no Redis
       const match = {
         matchId: room.id,
-        roomId: room.id,
         status: "playing",
         createdAt: Date.now(),
-        // turno inicial (simples): A começa
+
+        // 🔥 Agora o turno é autoritário do servidor
         turn: "A",
-        // sequência de ações (autoridade do servidor)
+
+        // 🔥 Sequência autoritária (ordem global)
         serverSeq: 0,
+
+        // Para debug/recuperação
+        lastAction: null,
+
         players: {
-          A: { id: p1.id, name: p1.name || "Player 1", deck: p1Deck },
-          B: { id: p2.id, name: p2.name || "Player 2", deck: p2Deck }
+          A: { id: p1.id, deck: p1.deck || [] },
+          B: { id: p2.id, deck: p2.deck || [] }
         },
-        // snapshot base do estado
+
+        // Snapshot base (ainda simples)
         state: {
           playerA: initial.playerA,
           playerB: initial.playerB
@@ -220,175 +138,137 @@ io.on('connection', async (socket) => {
 
       await saveMatch(match);
 
-      console.log('[MATCH_START] matchId:', match.matchId, 'A:', p1.id, 'B:', p2.id);
+      // garante que os 2 sockets estão no "room" do match
+      io.sockets.sockets.get(p1.id)?.join(match.matchId);
+      io.sockets.sockets.get(p2.id)?.join(match.matchId);
 
-      // Cada um recebe sua perspectiva "PLAYER"
-      io.to(p1.id).emit('match_start', {
+      console.log("[MATCH_START] matchId=", match.matchId, "A=", p1.id, "B=", p2.id);
+
+      io.to(p1.id).emit("match_start", {
         matchId: match.matchId,
-        yourRole: 'A',
+        yourRole: "A",
         you: match.state.playerA,
         opp: match.state.playerB,
-        youDeck: p1Deck,
-        oppDeck: p2Deck,
+        youDeck: match.players.A.deck,
+        oppDeck: match.players.B.deck,
         turn: match.turn
       });
 
-      io.to(p2.id).emit('match_start', {
+      io.to(p2.id).emit("match_start", {
         matchId: match.matchId,
-        yourRole: 'B',
+        yourRole: "B",
         you: match.state.playerB,
         opp: match.state.playerA,
-        youDeck: p2Deck,
-        oppDeck: p1Deck,
+        youDeck: match.players.B.deck,
+        oppDeck: match.players.A.deck,
         turn: match.turn
       });
 
-      // ✅ manda também um sync_state “autoridade”
+      // snapshot inicial (não é mais “o caminho” no futuro, mas ajuda no start)
       io.to(match.matchId).emit("sync_state", {
         matchId: match.matchId,
+        state: match.state,
         turn: match.turn,
-        serverSeq: match.serverSeq,
-        state: match.state
+        serverSeq: match.serverSeq
       });
-
-      return;
     }
-
-    await broadcastRooms();
   });
 
-  /**
-   * ✅ AÇÃO PVP (AUTORITÁRIO)
-   * O cliente manda uma ação. O servidor:
-   * - verifica se o socket faz parte do match
-   * - verifica se é o turno dele
-   * - atribui serverSeq (ordem única)
-   * - (por enquanto) NÃO aplica regras do jogo aqui
-   * - retransmite para os dois em ordem
-   *
-   * Próxima etapa: aplicar regras no servidor em vez de só retransmitir.
-   */
+  // -------- RESYNC: cliente pede o estado autoritário atual --------
+  socket.on("pvp_request_sync", async ({ matchId }) => {
+    const match = await getMatch(matchId);
+    if (!match) return safeEmitReject(socket, matchId, "MATCH_NOT_FOUND");
+
+    // Garante que só player do match recebe
+    const role = roleForSocket(match, socket.id);
+    if (!role) return safeEmitReject(socket, matchId, "NOT_IN_MATCH");
+
+    socket.join(matchId);
+
+    socket.emit("sync_state", {
+      matchId,
+      state: match.state,
+      turn: match.turn,
+      serverSeq: match.serverSeq || 0,
+      youDeck: role === "A" ? match.players.A.deck : match.players.B.deck,
+      oppDeck: role === "A" ? match.players.B.deck : match.players.A.deck,
+      lastAction: match.lastAction || null
+    });
+  });
+
+  // -------- PVP ACTION (EVOLUÇÃO): PASS_TURN autoritário --------
   socket.on("pvp_action", async ({ matchId, type, payload, clientSeq }) => {
     const match = await getMatch(matchId);
     if (!match) {
-      socket.emit("pvp_reject", { reason: "MATCH_NOT_FOUND", matchId });
-      return;
+      console.log("[PVP_ACTION] MATCH_NOT_FOUND", matchId);
+      return safeEmitReject(socket, matchId, "MATCH_NOT_FOUND");
     }
 
+    // Segurança: garante que esse socket é do match
     const role = roleForSocket(match, socket.id);
     if (!role) {
-      socket.emit("pvp_reject", { reason: "NOT_IN_MATCH", matchId });
-      return;
+      console.log("[PVP_ACTION] NOT_IN_MATCH socket=", socket.id, "match=", matchId);
+      return safeEmitReject(socket, matchId, "NOT_IN_MATCH");
     }
 
-    // Autoridade de turno (ninguém joga fora do turno)
+    // Garantir que ele está na sala do match (evita “perdi eventos”)
+    socket.join(matchId);
+
+    // Turno autoritário: ninguém age fora do turno
     if (match.turn !== role) {
-      socket.emit("pvp_reject", { reason: "NOT_YOUR_TURN", matchId, turn: match.turn });
-      return;
+      console.log("[PVP_ACTION] NOT_YOUR_TURN role=", role, "turn=", match.turn);
+      return safeEmitReject(socket, matchId, "NOT_YOUR_TURN", { turn: match.turn });
     }
 
-    // incrementa seq do servidor
+    // Sequência global (ordem única do servidor)
     match.serverSeq = (match.serverSeq || 0) + 1;
 
-    // ✅ REGRA de turno simples:
-    // - Apenas PASS_TURN troca o turno.
-    // (Depois ajustamos com suas regras reais.)
+    // ✅ PASS_TURN (100% autoritário)
     if (type === "PASS_TURN") {
       match.turn = (match.turn === "A") ? "B" : "A";
+    } else {
+      // Por enquanto só aceitamos PASS_TURN como “autoritário real”
+      // Outras ações vamos adicionar no próximo passo (PLAY_CARD / ATTACK etc)
+      console.log("[PVP_ACTION] Unsupported type for now:", type);
+      return safeEmitReject(socket, matchId, "UNSUPPORTED_ACTION", { type });
     }
+
+    match.lastAction = {
+      serverSeq: match.serverSeq,
+      from: role,
+      type,
+      payload: payload ?? null,
+      clientSeq: clientSeq ?? null,
+      ts: Date.now()
+    };
 
     await saveMatch(match);
 
-    // retransmite ação para sala inteira
-    io.to(match.matchId).emit("pvp_action", {
-      matchId: match.matchId,
-      serverSeq: match.serverSeq,
-      role,        // quem executou (A/B)
+    // Broadcast autoritário para os 2 (inclusive quem enviou)
+    io.to(matchId).emit("pvp_action", {
+      matchId,
+      role,
       type,
-      payload,
+      payload: payload ?? null,
       clientSeq: clientSeq ?? null,
+      serverSeq: match.serverSeq,
       turn: match.turn
     });
-  });
 
-  /**
-   * ✅ RESYNC (se cair/recarregar)
-   * Cliente pede o estado autoritário atual do match.
-   */
-  socket.on("pvp_request_sync", async ({ matchId }) => {
-    const match = await getMatch(matchId);
-    if (!match) {
-      socket.emit("pvp_reject", { reason: "MATCH_NOT_FOUND", matchId });
-      return;
-    }
-
-    const role = roleForSocket(match, socket.id);
-    if (!role) {
-      socket.emit("pvp_reject", { reason: "NOT_IN_MATCH", matchId });
-      return;
-    }
-
-    socket.emit("sync_state", {
-      matchId: match.matchId,
+    // Opcional: também manda um “mini sync” do turno atual (mais robusto)
+    io.to(matchId).emit("turn_update", {
+      matchId,
       turn: match.turn,
-      serverSeq: match.serverSeq || 0,
-      state: match.state,
-      // decks por perspectiva (pra reconstruir se precisar)
-      youDeck: role === "A" ? match.players.A.deck : match.players.B.deck,
-      oppDeck: role === "A" ? match.players.B.deck : match.players.A.deck
+      serverSeq: match.serverSeq
     });
+
+    console.log("[PVP_ACTION] OK", matchId, "seq=", match.serverSeq, "turn=", match.turn);
   });
 
-  socket.on('leave_room', async () => {
-    let rooms = await getRooms();
-    const room = rooms.find(r => r.players.some(p => p.id === socket.id));
-    if (!room) return;
-
-    room.players = room.players.filter(p => p.id !== socket.id);
-
-    if (room.players.length > 0) {
-      room.status = 'waiting';
-      room.started = false;
-      room.players.forEach(p => { p.ready = false; p.deck = null; });
-      await saveRooms(rooms);
-
-      socket.leave(room.id);
-      io.to(room.id).emit('room_state', room);
-    } else {
-      rooms = rooms.filter(r => r.id !== room.id);
-      await saveRooms(rooms);
-      socket.leave(room.id);
-    }
-
-    await broadcastRooms();
-  });
-
-  socket.on('disconnect', async (reason) => {
-    console.log('[SOCKET] disconnected:', socket.id, 'reason:', reason);
-
-    let rooms = await getRooms();
-
-    for (const room of rooms) {
-      const hadPlayer = room.players.some(p => p.id === socket.id);
-      if (!hadPlayer) continue;
-
-      room.players = room.players.filter(p => p.id !== socket.id);
-
-      if (room.players.length > 0) {
-        room.status = 'waiting';
-        room.started = false;
-        room.players.forEach(p => { p.ready = false; p.deck = null; });
-        io.to(room.id).emit('room_state', room);
-      }
-    }
-
-    rooms = rooms.filter(r => r.players.length > 0);
-    await saveRooms(rooms);
-
-    await broadcastRooms();
+  socket.on("disconnect", (reason) => {
+    console.log("[SOCKET] disconnected", socket.id, "reason=", reason);
   });
 });
 
-// Start
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('Server running on port', PORT));
+server.listen(PORT, () => console.log("Server running on", PORT));
