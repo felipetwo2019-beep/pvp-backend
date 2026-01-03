@@ -140,56 +140,89 @@ io.on("connection", async (socket) => {
   });
 
   // -------- Lobby: criar sala --------
-  socket.on("create_room", async ({ name, password }) => {
-    const rooms = await getRooms();
-    const roomId = uid("match");
-    const room = {
-      id: roomId,
-      name: (name && String(name).trim()) || "Sala",
-      hasPassword: !!(password && String(password).length > 0),
-      passwordHash: password ? sha256(password) : null,
-      players: [{ id: socket.id, name: "Jogador 1", ready: false, deck: [] }],
-      status: "waiting",
-      createdAt: Date.now(),
-    };
-    rooms.push(room);
-    await saveRooms(rooms);
+  socket.on("create_room", async ({ name, password }, ack) => {
+    try {
+      const rooms = await getRooms();
+      const roomId = uid("match");
+      const room = {
+        id: roomId,
+        name: (name && String(name).trim()) || "Sala",
+        hasPassword: !!(password && String(password).length > 0),
+        passwordHash: password ? sha256(password) : null,
+        players: [{ id: socket.id, name: "Jogador 1", ready: false, deck: [] }],
+        status: "waiting",
+        createdAt: Date.now(),
+      };
+      rooms.push(room);
+      await saveRooms(rooms);
 
-    socket.join(roomId);
-    socket.emit("room_state", room);
-    await emitRoomsUpdated();
+      socket.join(roomId);
+
+      // confirma via ack (mais confiável que depender só de event)
+      if (typeof ack === "function") ack({ ok: true, room });
+
+      // mantém compat: evento para o client e atualiza lista global
+      socket.emit("room_state", room);
+      await emitRoomsUpdated();
+    } catch (e) {
+      console.error("[create_room] error", e);
+      if (typeof ack === "function") ack({ ok: false, error: "Falha ao criar sala." });
+      socket.emit("error_msg", "Falha ao criar sala.");
+    }
   });
 
   // -------- Lobby: entrar em sala --------
-  socket.on("join_room", async ({ roomId, password }) => {
-    const rooms = await getRooms();
-    const room = rooms.find((r) => r.id === roomId);
-    if (!room) return socket.emit("error_msg", "Sala não encontrada.");
-
-    // já está na sala?
-    if (room.players?.some((p) => p.id === socket.id)) {
-      socket.join(roomId);
-      socket.emit("room_state", room);
-      return;
-    }
-
-    if ((room.players?.length || 0) >= 2) return socket.emit("error_msg", "Sala cheia.");
-
-    if (room.hasPassword) {
-      if (!password || sha256(password) !== room.passwordHash) {
-        return socket.emit("error_msg", "Senha incorreta.");
+  socket.on("join_room", async ({ roomId, password }, ack) => {
+    try {
+      const rooms = await getRooms();
+      const room = rooms.find((r) => r.id === roomId);
+      if (!room) {
+        if (typeof ack === "function") ack({ ok: false, error: "Sala não encontrada." });
+        return socket.emit("error_msg", "Sala não encontrada.");
       }
+
+      // já está na sala?
+      if (room.players?.some((p) => p.id === socket.id)) {
+        socket.join(roomId);
+        if (typeof ack === "function") ack({ ok: true, room });
+        socket.emit("room_state", room);
+        return;
+      }
+
+      if ((room.players?.length || 0) >= 2) {
+        if (typeof ack === "function") ack({ ok: false, error: "Sala cheia." });
+        return socket.emit("error_msg", "Sala cheia.");
+      }
+
+      if (room.hasPassword) {
+        if (!password || sha256(password) !== room.passwordHash) {
+          if (typeof ack === "function") ack({ ok: false, error: "Senha inválida." });
+          return socket.emit("error_msg", "Senha inválida.");
+        }
+      }
+
+      room.players = room.players || [];
+      room.players.push({
+        id: socket.id,
+        name: room.players.length === 0 ? "Jogador 1" : "Jogador 2",
+        ready: false,
+        deck: [],
+      });
+      room.status = "waiting";
+
+      await saveRooms(rooms);
+
+      socket.join(roomId);
+
+      if (typeof ack === "function") ack({ ok: true, room });
+
+      io.to(roomId).emit("room_state", room);
+      await emitRoomsUpdated();
+    } catch (e) {
+      console.error("[join_room] error", e);
+      if (typeof ack === "function") ack({ ok: false, error: "Falha ao entrar na sala." });
+      socket.emit("error_msg", "Falha ao entrar na sala.");
     }
-
-    if (!Array.isArray(room.players)) room.players = [];
-    room.players.push({ id: socket.id, name: room.players.length === 0 ? "Jogador 1" : "Jogador 2", ready: false, deck: [] });
-    room.status = "waiting";
-
-    await saveRooms(rooms);
-
-    socket.join(roomId);
-    io.to(roomId).emit("room_state", room);
-    await emitRoomsUpdated();
   });
 
   // -------- Lobby: sair da sala --------
