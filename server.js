@@ -1,431 +1,213 @@
-// === SERVER.JS PVP FINAL (LOBBY + MATCH + SNAPSHOT SYNC) ===
-// Node/Express + Socket.IO + Redis (Render-friendly)
+import express from "express";
+import http from "http";
+import { Server } from "socket.io";
+import cors from "cors";
 
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const cors = require("cors");
-const Redis = require("ioredis");
-const crypto = require("crypto");
+const PORT = process.env.PORT || 3000;
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 
 const app = express();
-app.use(cors({ origin: "*", methods: ["GET", "POST", "OPTIONS"], credentials: false }));
-
-const server = http.createServer(app);
-
-const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST", "OPTIONS"] },
-  transports: ["polling", "websocket"],
-  pingTimeout: 20000,
-  pingInterval: 25000,
-  allowEIO3: true,
-});
-
-app.get("/", (req, res) => res.send("Servidor PVP ONLINE"));
+app.use(cors({ origin: CLIENT_ORIGIN === "*" ? true : CLIENT_ORIGIN, credentials: true }));
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-// Redis é opcional. Se REDIS_URL não existir, usa memória (bom pra começar e evita crash).
-let redis;
-if (process.env.REDIS_URL) {
-  redis = new Redis(process.env.REDIS_URL);
-} else {
-  console.warn("[REDIS] REDIS_URL não definido. Usando armazenamento em memória (não persiste).");
-  const mem = new Map(); // key -> { value: string, exp: number|null }
-  redis = {
-    async get(k) {
-      const it = mem.get(k);
-      if (!it) return null;
-      if (it.exp && Date.now() > it.exp) { mem.delete(k); return null; }
-      return it.value;
-    },
-    async set(k, v, mode, ttl) {
-      // suporta set(key, value, "EX", seconds)
-      let exp = null;
-      if (String(mode).toUpperCase() === "EX" && typeof ttl === "number") exp = Date.now() + ttl * 1000;
-      mem.set(k, { value: String(v), exp });
-      return "OK";
-    },
-    async del(k) { mem.delete(k); return 1; },
-  };
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: CLIENT_ORIGIN === "*" ? true : CLIENT_ORIGIN, methods: ["GET", "POST"] },
+});
+
+const rooms = new Map(); // roomId -> room
+const socketToRoom = new Map(); // socket.id -> roomId
+
+function makeId() {
+  return Math.random().toString(36).slice(2, 10);
 }
 
-// -------------------- Redis keys / TTL --------------------
-const ROOMS_KEY = "pvp:rooms"; // array de salas
-const MATCH_KEY = (id) => `pvp:match:${id}`;
-
-const MATCH_TTL_SECONDS = 60 * 60; // 1h
-const ROOMS_TTL_SECONDS = 60 * 60 * 6; // 6h (rooms ficam no ROOMS_KEY; limpamos manualmente quando vazias)
-
-// -------------------- Helpers --------------------
-function uid(prefix = "room") {
-  return `${prefix}_${Date.now().toString(36)}_${crypto.randomBytes(3).toString("hex")}`;
-}
-function sha256(str) {
-  return crypto.createHash("sha256").update(String(str)).digest("hex");
-}
-
-async function getRooms() {
-  const d = await redis.get(ROOMS_KEY);
-  return d ? JSON.parse(d) : [];
-}
-async function saveRooms(rooms) {
-  await redis.set(ROOMS_KEY, JSON.stringify(rooms), "EX", ROOMS_TTL_SECONDS);
-}
-async function saveMatch(match) {
-  await redis.set(MATCH_KEY(match.matchId), JSON.stringify(match), "EX", MATCH_TTL_SECONDS);
-}
-async function getMatch(matchId) {
-  const d = await redis.get(MATCH_KEY(matchId));
-  return d ? JSON.parse(d) : null;
-}
-async function delMatch(matchId) {
-  try { await redis.del(MATCH_KEY(matchId)); } catch (_) {}
-}
-
-function roleForSocket(match, sid) {
-  if (!match?.players?.A?.id || !match?.players?.B?.id) return null;
-  if (match.players.A.id === sid) return "A";
-  if (match.players.B.id === sid) return "B";
-  return null;
-}
-
-function minimalRoomView(room) {
+function roomPublicState(room) {
   return {
     id: room.id,
     name: room.name,
-    hasPassword: !!room.hasPassword,
-    players: Array.isArray(room.players) ? room.players.length : 0,
-    status: room.status || "waiting",
+    players: room.players.length,
+    locked: !!room.password,
+    status: room.status, // 'waiting'|'in-game'
   };
 }
 
-async function emitRoomsUpdated() {
-  const rooms = await getRooms();
-  io.emit("rooms_updated", (rooms || []).map(minimalRoomView));
+function broadcastRooms() {
+  const list = [...rooms.values()].map(roomPublicState);
+  io.emit("rooms:state", list);
 }
 
-function safeEmitReject(socket, matchId, reason, extra = {}) {
-  socket.emit("pvp_reject", { matchId, reason, ...extra });
+function broadcastRoomUpdate(room) {
+  const decksText = room.players.map(p => `${p.seat}:${p.deckName || "Deck"}`).join(" | ");
+  const readyText = room.players.map(p => `${p.seat}:${p.ready ? "✅" : "⏳"}`).join(" | ");
+  io.to(room.id).emit("room:update", {
+    roomId: room.id,
+    players: room.players.length,
+    status: room.status,
+    decksText,
+    readyText,
+  });
 }
 
-function createInitialState() {
-  // Estado mínimo para bootstrap. O front manda snapshots completos após ações.
-  return {
-    playerA: { hp: 1000, maxHp: 1000, def: 20, pi: 7, hand: [], deck: [], gy: [], field: {}, teamEffects: [] },
-    playerB: { hp: 1000, maxHp: 1000, def: 20, pi: 7, hand: [], deck: [], gy: [], field: {}, teamEffects: [] },
-  };
-}
-
-async function removePlayerFromRooms(socketId) {
-  const rooms = await getRooms();
-  let changed = false;
-  const affectedRooms = [];
-
-  for (const room of rooms) {
-    const before = room.players?.length || 0;
-    if (Array.isArray(room.players)) {
-      room.players = room.players.filter((p) => p.id !== socketId);
-      if (room.players.length !== before) {
-        changed = true;
-        affectedRooms.push(room);
-        if (room.players.length === 0) room._delete = true;
-        if (room.status === "playing") room.status = "waiting";
-      }
-    }
-  }
-
-  if (changed) {
-    const kept = rooms.filter((r) => !r._delete);
-    await saveRooms(kept);
-    for (const room of affectedRooms) {
-      if (room._delete) continue;
-      io.to(room.id).emit("room_state", room);
-    }
-    await emitRoomsUpdated();
+function cleanupRoomIfEmpty(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  if (room.players.length === 0) {
+    rooms.delete(roomId);
+    broadcastRooms();
   }
 }
 
-// -------------------- Socket.IO --------------------
-io.on("connection", async (socket) => {
-  console.log("[SOCKET] connected", socket.id);
+io.on("connection", (socket) => {
+  // basic naive rate limit
+  let lastMsgAt = 0;
+  function rateLimit() {
+    const now = Date.now();
+    if (now - lastMsgAt < 30) return false;
+    lastMsgAt = now;
+    return true;
+  }
 
-  socket.on("ping_rooms", async () => {
-    await emitRoomsUpdated();
+  socket.on("rooms:list", () => {
+    if (!rateLimit()) return;
+    const list = [...rooms.values()].map(roomPublicState);
+    socket.emit("rooms:state", list);
   });
 
-  socket.on("rooms_list", async () => {
-    await emitRoomsUpdated();
-  });
-
-  socket.on("create_room", async ({ name, password }, ack) => {
+  socket.on("room:create", ({ name, password = "", deckName = "Deck", playerName = "Player" } = {}) => {
+    if (!rateLimit()) return;
     try {
-      const rooms = await getRooms();
-      const roomId = uid("match");
-      const room = {
-        id: roomId,
-        name: (name && String(name).trim()) || "Sala",
-        hasPassword: !!(password && String(password).length > 0),
-        passwordHash: password ? sha256(password) : null,
-        players: [{ id: socket.id, name: "Jogador 1", ready: false, deck: [] }],
-        status: "waiting",
-        createdAt: Date.now(),
-      };
-      rooms.push(room);
-      await saveRooms(rooms);
-
-      socket.join(roomId);
-
-      if (typeof ack === "function") ack({ ok: true, room });
-
-      socket.emit("room_state", room);
-      await emitRoomsUpdated();
-    } catch (e) {
-      console.error("[create_room] error", e);
-      if (typeof ack === "function") ack({ ok: false, error: "Falha ao criar sala." });
-      socket.emit("error_msg", "Falha ao criar sala.");
-    }
-  });
-
-  socket.on("join_room", async ({ roomId, password }, ack) => {
-    try {
-      const rooms = await getRooms();
-      const room = rooms.find((r) => r.id === roomId);
-      if (!room) {
-        if (typeof ack === "function") ack({ ok: false, error: "Sala não encontrada." });
-        return socket.emit("error_msg", "Sala não encontrada.");
-      }
-
-      if (room.players?.some((p) => p.id === socket.id)) {
-        socket.join(roomId);
-        if (typeof ack === "function") ack({ ok: true, room });
-        socket.emit("room_state", room);
+      if (!name || typeof name !== "string" || name.trim().length < 2) {
+        socket.emit("room:error", "Nome de sala inválido.");
         return;
       }
-
-      if ((room.players?.length || 0) >= 2) {
-        if (typeof ack === "function") ack({ ok: false, error: "Sala cheia." });
-        return socket.emit("error_msg", "Sala cheia.");
-      }
-
-      if (room.hasPassword) {
-        if (!password || sha256(password) !== room.passwordHash) {
-          if (typeof ack === "function") ack({ ok: false, error: "Senha inválida." });
-          return socket.emit("error_msg", "Senha inválida.");
-        }
-      }
-
-      room.players = room.players || [];
-      room.players.push({
-        id: socket.id,
-        name: room.players.length === 0 ? "Jogador 1" : "Jogador 2",
-        ready: false,
-        deck: [],
-      });
-      room.status = "waiting";
-
-      await saveRooms(rooms);
-
-      socket.join(roomId);
-
-      if (typeof ack === "function") ack({ ok: true, room });
-
-      io.to(roomId).emit("room_state", room);
-      await emitRoomsUpdated();
-    } catch (e) {
-      console.error("[join_room] error", e);
-      if (typeof ack === "function") ack({ ok: false, error: "Falha ao entrar na sala." });
-      socket.emit("error_msg", "Falha ao entrar na sala.");
-    }
-  });
-
-  socket.on("leave_room", async () => {
-    const rooms = await getRooms();
-    const room = rooms.find((r) => r.players?.some((p) => p.id === socket.id));
-    if (!room) return;
-
-    socket.leave(room.id);
-    room.players = (room.players || []).filter((p) => p.id !== socket.id);
-
-    const kept = room.players.length === 0 ? rooms.filter((r) => r.id !== room.id) : rooms;
-
-    if (room.players.length === 1) {
-      room.players[0].ready = false;
-      room.status = "waiting";
-    }
-
-    await saveRooms(kept);
-
-    if (room.players.length > 0) io.to(room.id).emit("room_state", room);
-    await emitRoomsUpdated();
-  });
-
-  socket.on("set_ready", async ({ ready, deck }) => {
-    const rooms = await getRooms();
-    const room = rooms.find((r) => r.players?.some((p) => p.id === socket.id));
-    if (!room) return;
-
-    const player = room.players.find((p) => p.id === socket.id);
-    if (!player) return;
-
-    player.ready = !!ready;
-    player.deck = Array.isArray(deck) ? deck : [];
-
-    await saveRooms(rooms);
-    io.to(room.id).emit("room_state", room);
-
-    if (room.players.length === 2 && room.players.every((p) => p.ready) && room.status !== "playing") {
-      room.status = "playing";
-      await saveRooms(rooms);
-
-      const [p1, p2] = room.players;
-
-      const match = {
-        matchId: room.id,
-        status: "playing",
-        createdAt: Date.now(),
-
-        turn: "A",
-        serverSeq: 0,
-        lastAction: null,
-
-        players: {
-          A: { id: p1.id, deck: p1.deck || [] },
-          B: { id: p2.id, deck: p2.deck || [] },
-        },
-
-        state: createInitialState(),
+      const id = makeId();
+      const room = {
+        id,
+        name: name.trim().slice(0, 40),
+        password: password ? String(password) : "",
+        status: "waiting",
+        players: [],
       };
+      rooms.set(id, room);
 
-      await saveMatch(match);
+      // auto-join creator
+      const seat = "A";
+      room.players.push({ socketId: socket.id, seat, deckName, playerName, ready: false });
+      socket.join(id);
+      socketToRoom.set(socket.id, id);
 
-      io.sockets.sockets.get(p1.id)?.join(match.matchId);
-      io.sockets.sockets.get(p2.id)?.join(match.matchId);
-
-      console.log("[MATCH_START]", match.matchId, "A=", p1.id, "B=", p2.id);
-
-      io.to(p1.id).emit("match_start", {
-        matchId: match.matchId,
-        yourRole: "A",
-        you: match.state.playerA,
-        opp: match.state.playerB,
-        youDeck: match.players.A.deck,
-        oppDeck: match.players.B.deck,
-        turn: match.turn,
-      });
-
-      io.to(p2.id).emit("match_start", {
-        matchId: match.matchId,
-        yourRole: "B",
-        you: match.state.playerB,
-        opp: match.state.playerA,
-        youDeck: match.players.B.deck,
-        oppDeck: match.players.A.deck,
-        turn: match.turn,
-      });
-
-      io.to(match.matchId).emit("sync_state", {
-        matchId: match.matchId,
-        state: match.state,
-        turn: match.turn,
-        serverSeq: match.serverSeq,
-      });
+      socket.emit("room:joined", { roomId: id, roomName: room.name, seat, players: room.players.length, decksText: `A:${deckName}` });
+      broadcastRoomUpdate(room);
+      broadcastRooms();
+    } catch (e) {
+      socket.emit("room:error", "Falha ao criar sala.");
     }
   });
 
-  socket.on("pvp_request_sync", async ({ matchId }) => {
-    const match = await getMatch(matchId);
-    if (!match) return safeEmitReject(socket, matchId, "MATCH_NOT_FOUND");
+  socket.on("room:join", ({ roomId, password = "", deckName = "Deck", playerName = "Player" } = {}) => {
+    if (!rateLimit()) return;
+    const room = rooms.get(roomId);
+    if (!room) return socket.emit("room:error", "Sala não existe.");
+    if (room.players.length >= 2) return socket.emit("room:error", "Sala cheia.");
+    if (room.password && room.password !== String(password || "")) return socket.emit("room:error", "Senha incorreta.");
 
-    const role = roleForSocket(match, socket.id);
-    if (!role) return safeEmitReject(socket, matchId, "NOT_IN_MATCH");
+    const seat = room.players.some(p => p.seat === "A") ? "B" : "A";
+    room.players.push({ socketId: socket.id, seat, deckName, playerName, ready: false });
+    socket.join(roomId);
+    socketToRoom.set(socket.id, roomId);
 
-    socket.join(matchId);
-
-    socket.emit("sync_state", {
-      matchId,
-      state: match.state,
-      turn: match.turn,
-      serverSeq: match.serverSeq || 0,
-      youDeck: role === "A" ? match.players.A.deck : match.players.B.deck,
-      oppDeck: role === "A" ? match.players.B.deck : match.players.A.deck,
-      lastAction: match.lastAction || null,
-    });
+    const decksText = room.players.map(p => `${p.seat}:${p.deckName}`).join(" | ");
+    socket.emit("room:joined", { roomId, roomName: room.name, seat, players: room.players.length, decksText });
+    broadcastRoomUpdate(room);
+    broadcastRooms();
   });
 
-  socket.on("pvp_action", async ({ matchId, type, payload, clientSeq }) => {
-    const match = await getMatch(matchId);
-    if (!match) return safeEmitReject(socket, matchId, "MATCH_NOT_FOUND");
+  socket.on("room:leave", ({ roomId } = {}) => {
+    if (!rateLimit()) return;
+    const id = roomId || socketToRoom.get(socket.id);
+    if (!id) return;
+    const room = rooms.get(id);
+    if (!room) return;
 
-    const role = roleForSocket(match, socket.id);
-    if (!role) return safeEmitReject(socket, matchId, "NOT_IN_MATCH");
+    room.players = room.players.filter(p => p.socketId !== socket.id);
+    socket.leave(id);
+    socketToRoom.delete(socket.id);
 
-    socket.join(matchId);
-
-    if (match.turn !== role) return safeEmitReject(socket, matchId, "NOT_YOUR_TURN", { turn: match.turn });
-
-    match.serverSeq = (match.serverSeq || 0) + 1;
-
-    if (payload && payload.state && payload.state.playerA && payload.state.playerB) {
-      match.state = payload.state;
-    }
-
-    if (type === "PASS_TURN" || type === "END_TURN") {
-      match.turn = match.turn === "A" ? "B" : "A";
-    }
-
-    match.lastAction = {
-      serverSeq: match.serverSeq,
-      fromRole: role,
-      type,
-      payload: payload ?? null,
-      clientSeq: clientSeq ?? null,
-      ts: Date.now(),
-    };
-
-    await saveMatch(match);
-
-    io.to(matchId).emit("pvp_action", {
-      matchId,
-      serverSeq: match.serverSeq,
-      fromRole: role,
-      type,
-      payload: payload ?? null,
-      turn: match.turn,
-    });
-
-    const shouldSync = (match.serverSeq % 5 === 0) || (payload && payload.state);
-    if (shouldSync) {
-      io.to(matchId).emit("sync_state", {
-        matchId,
-        state: match.state,
-        turn: match.turn,
-        serverSeq: match.serverSeq,
-      });
-    }
+    broadcastRoomUpdate(room);
+    cleanupRoomIfEmpty(id);
   });
 
-  socket.on("disconnect", async (reason) => {
-    console.log("[SOCKET] disconnected", socket.id, "reason=", reason);
+  socket.on("room:ready", ({ roomId } = {}) => {
+    if (!rateLimit()) return;
+    const id = roomId || socketToRoom.get(socket.id);
+    const room = rooms.get(id);
+    if (!room) return socket.emit("room:error", "Sala não existe.");
 
-    const rooms = await getRooms();
-    const playingRoom = rooms.find((r) => r.status === "playing" && r.players?.some((p) => p.id === socket.id));
-    if (playingRoom) {
-      const matchId = playingRoom.id;
-      const match = await getMatch(matchId);
-      if (match) {
-        const role = roleForSocket(match, socket.id);
-        const otherRole = role === "A" ? "B" : "A";
-        const otherId = match.players?.[otherRole]?.id;
+    const p = room.players.find(p => p.socketId === socket.id);
+    if (!p) return;
+    p.ready = true;
 
-        if (otherId) io.to(otherId).emit("opponent_left", { matchId });
+    broadcastRoomUpdate(room);
 
-        await delMatch(matchId);
+    if (room.players.length === 2 && room.players.every(p => p.ready) && room.status !== "in-game") {
+      room.status = "in-game";
+      // Notify each seat
+      for (const pl of room.players) {
+        io.to(pl.socketId).emit("match:start", { roomId: room.id, seat: pl.seat });
       }
+      broadcastRooms();
     }
+  });
 
-    await removePlayerFromRooms(socket.id);
+  // Seat B -> server -> seat A (host) : action intents
+  socket.on("action:intent", ({ roomId, intent } = {}) => {
+    if (!rateLimit()) return;
+    const id = roomId || socketToRoom.get(socket.id);
+    const room = rooms.get(id);
+    if (!room) return;
+
+    const from = room.players.find(p => p.socketId === socket.id);
+    if (!from) return;
+
+    const host = room.players.find(p => p.seat === "A");
+    if (!host) return;
+
+    // Only forward intents from non-host (B) to host
+    if (from.seat !== "B") return;
+
+    io.to(host.socketId).emit("match:intent", { roomId: id, fromSeat: from.seat, intent });
+  });
+
+  // Seat A -> server -> seat B : state snapshots
+  socket.on("match:state", ({ roomId, state } = {}) => {
+    if (!rateLimit()) return;
+    const id = roomId || socketToRoom.get(socket.id);
+    const room = rooms.get(id);
+    if (!room) return;
+
+    const from = room.players.find(p => p.socketId === socket.id);
+    if (!from || from.seat !== "A") return;
+
+    const other = room.players.find(p => p.seat === "B");
+    if (!other) return;
+
+    io.to(other.socketId).emit("match:state", { roomId: id, state });
+  });
+
+  socket.on("disconnect", () => {
+    const id = socketToRoom.get(socket.id);
+    if (!id) return;
+    const room = rooms.get(id);
+    if (!room) return;
+
+    room.players = room.players.filter(p => p.socketId !== socket.id);
+    socketToRoom.delete(socket.id);
+    broadcastRoomUpdate(room);
+    cleanupRoomIfEmpty(id);
   });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log("Server running on", PORT));
+server.listen(PORT, () => {
+  console.log(`PVP server listening on :${PORT}`);
+});
