@@ -24,7 +24,30 @@ const io = new Server(server, {
 app.get("/", (req, res) => res.send("Servidor PVP ONLINE"));
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-const redis = new Redis(process.env.REDIS_URL);
+// Redis é opcional. Se REDIS_URL não existir, usa memória (bom pra começar e evita crash).
+let redis;
+if (process.env.REDIS_URL) {
+  redis = new Redis(process.env.REDIS_URL);
+} else {
+  console.warn("[REDIS] REDIS_URL não definido. Usando armazenamento em memória (não persiste).");
+  const mem = new Map(); // key -> { value: string, exp: number|null }
+  redis = {
+    async get(k) {
+      const it = mem.get(k);
+      if (!it) return null;
+      if (it.exp && Date.now() > it.exp) { mem.delete(k); return null; }
+      return it.value;
+    },
+    async set(k, v, mode, ttl) {
+      // suporta set(key, value, "EX", seconds)
+      let exp = null;
+      if (String(mode).toUpperCase() === "EX" && typeof ttl === "number") exp = Date.now() + ttl * 1000;
+      mem.set(k, { value: String(v), exp });
+      return "OK";
+    },
+    async del(k) { mem.delete(k); return 1; },
+  };
+}
 
 // -------------------- Redis keys / TTL --------------------
 const ROOMS_KEY = "pvp:rooms"; // array de salas
@@ -105,9 +128,7 @@ async function removePlayerFromRooms(socketId) {
       if (room.players.length !== before) {
         changed = true;
         affectedRooms.push(room);
-        // se sala ficou vazia, marca pra remover
         if (room.players.length === 0) room._delete = true;
-        // se estava jogando e alguém saiu, volta pra waiting (match encerra em outro lugar)
         if (room.status === "playing") room.status = "waiting";
       }
     }
@@ -116,7 +137,6 @@ async function removePlayerFromRooms(socketId) {
   if (changed) {
     const kept = rooms.filter((r) => !r._delete);
     await saveRooms(kept);
-    // atualiza room_state para quem restou
     for (const room of affectedRooms) {
       if (room._delete) continue;
       io.to(room.id).emit("room_state", room);
@@ -129,17 +149,14 @@ async function removePlayerFromRooms(socketId) {
 io.on("connection", async (socket) => {
   console.log("[SOCKET] connected", socket.id);
 
-  // Compat legado: alguns fronts antigos chamam ping_rooms
   socket.on("ping_rooms", async () => {
     await emitRoomsUpdated();
   });
 
-  // -------- Lobby: listar salas (front novo) --------
   socket.on("rooms_list", async () => {
     await emitRoomsUpdated();
   });
 
-  // -------- Lobby: criar sala --------
   socket.on("create_room", async ({ name, password }, ack) => {
     try {
       const rooms = await getRooms();
@@ -158,10 +175,8 @@ io.on("connection", async (socket) => {
 
       socket.join(roomId);
 
-      // confirma via ack (mais confiável que depender só de event)
       if (typeof ack === "function") ack({ ok: true, room });
 
-      // mantém compat: evento para o client e atualiza lista global
       socket.emit("room_state", room);
       await emitRoomsUpdated();
     } catch (e) {
@@ -171,7 +186,6 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // -------- Lobby: entrar em sala --------
   socket.on("join_room", async ({ roomId, password }, ack) => {
     try {
       const rooms = await getRooms();
@@ -181,7 +195,6 @@ io.on("connection", async (socket) => {
         return socket.emit("error_msg", "Sala não encontrada.");
       }
 
-      // já está na sala?
       if (room.players?.some((p) => p.id === socket.id)) {
         socket.join(roomId);
         if (typeof ack === "function") ack({ ok: true, room });
@@ -225,7 +238,6 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // -------- Lobby: sair da sala --------
   socket.on("leave_room", async () => {
     const rooms = await getRooms();
     const room = rooms.find((r) => r.players?.some((p) => p.id === socket.id));
@@ -234,10 +246,8 @@ io.on("connection", async (socket) => {
     socket.leave(room.id);
     room.players = (room.players || []).filter((p) => p.id !== socket.id);
 
-    // se sala vazia, remove
     const kept = room.players.length === 0 ? rooms.filter((r) => r.id !== room.id) : rooms;
 
-    // se ficou 1, reseta ready/status
     if (room.players.length === 1) {
       room.players[0].ready = false;
       room.status = "waiting";
@@ -245,12 +255,10 @@ io.on("connection", async (socket) => {
 
     await saveRooms(kept);
 
-    // atualiza UI de quem ficou
     if (room.players.length > 0) io.to(room.id).emit("room_state", room);
     await emitRoomsUpdated();
   });
 
-  // -------- Ready/Start match --------
   socket.on("set_ready", async ({ ready, deck }) => {
     const rooms = await getRooms();
     const room = rooms.find((r) => r.players?.some((p) => p.id === socket.id));
@@ -285,13 +293,11 @@ io.on("connection", async (socket) => {
           B: { id: p2.id, deck: p2.deck || [] },
         },
 
-        // snapshot autoritário (inicia mínimo, depois o client manda completo)
         state: createInitialState(),
       };
 
       await saveMatch(match);
 
-      // garante que os 2 sockets estão no room do match
       io.sockets.sockets.get(p1.id)?.join(match.matchId);
       io.sockets.sockets.get(p2.id)?.join(match.matchId);
 
@@ -326,7 +332,6 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // -------- RESYNC --------
   socket.on("pvp_request_sync", async ({ matchId }) => {
     const match = await getMatch(matchId);
     if (!match) return safeEmitReject(socket, matchId, "MATCH_NOT_FOUND");
@@ -347,7 +352,6 @@ io.on("connection", async (socket) => {
     });
   });
 
-  // -------- PVP ACTION (autoritário em turno + seq + snapshot) --------
   socket.on("pvp_action", async ({ matchId, type, payload, clientSeq }) => {
     const match = await getMatch(matchId);
     if (!match) return safeEmitReject(socket, matchId, "MATCH_NOT_FOUND");
@@ -357,17 +361,14 @@ io.on("connection", async (socket) => {
 
     socket.join(matchId);
 
-    // Turno autoritário
     if (match.turn !== role) return safeEmitReject(socket, matchId, "NOT_YOUR_TURN", { turn: match.turn });
 
     match.serverSeq = (match.serverSeq || 0) + 1;
 
-    // Snapshot autoritário: payload.state deve ser { playerA, playerB }
     if (payload && payload.state && payload.state.playerA && payload.state.playerB) {
       match.state = payload.state;
     }
 
-    // Regras mínimas autoritárias de turno
     if (type === "PASS_TURN" || type === "END_TURN") {
       match.turn = match.turn === "A" ? "B" : "A";
     }
@@ -383,7 +384,6 @@ io.on("connection", async (socket) => {
 
     await saveMatch(match);
 
-    // broadcast para os 2 (inclusive sender)
     io.to(matchId).emit("pvp_action", {
       matchId,
       serverSeq: match.serverSeq,
@@ -393,7 +393,6 @@ io.on("connection", async (socket) => {
       turn: match.turn,
     });
 
-    // mini sync periódico (a cada 5 ações) ou sempre que receber snapshot
     const shouldSync = (match.serverSeq % 5 === 0) || (payload && payload.state);
     if (shouldSync) {
       io.to(matchId).emit("sync_state", {
@@ -405,12 +404,9 @@ io.on("connection", async (socket) => {
     }
   });
 
-  // -------- Disconnect handling --------
   socket.on("disconnect", async (reason) => {
     console.log("[SOCKET] disconnected", socket.id, "reason=", reason);
 
-    // 1) se estava em algum match, encerra com segurança
-    // (a) tenta descobrir matchId pelo ROOMS (status playing) para não iterar Redis keys
     const rooms = await getRooms();
     const playingRoom = rooms.find((r) => r.status === "playing" && r.players?.some((p) => p.id === socket.id));
     if (playingRoom) {
@@ -427,7 +423,6 @@ io.on("connection", async (socket) => {
       }
     }
 
-    // 2) remove de salas e limpa salas vazias
     await removePlayerFromRooms(socket.id);
   });
 });
