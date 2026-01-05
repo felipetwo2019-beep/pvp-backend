@@ -51,6 +51,12 @@
   .board { display:grid; grid-template-columns: 70px repeat(5, 80px); grid-template-rows: repeat(2, 120px); gap: 6px; justify-content:center; }
   .slot { width: 80px; height:120px; border:2px dashed #555; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; position:relative; }
   .slot.targetable{ border-color: rgba(255, 214, 0, 0.85); box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.15); }
+  .slot.targetable.blinking{ animation: targetPulse 0.85s ease-in-out infinite; }
+  @keyframes targetPulse{
+    0%{ box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.15), 0 0 6px rgba(255,214,0,0.25); }
+    50%{ box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.35), 0 0 14px rgba(255,214,0,0.6); }
+    100%{ box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.15), 0 0 6px rgba(255,214,0,0.25); }
+  }
   .side-slot { width:70px; height:120px; border:2px solid #888; background:#222; font-size:12px; display:flex; align-items:center; justify-content:center; user-select:none; cursor: default; white-space: pre-line; position:relative; }
   .side-slot.clickable{ cursor:pointer; outline: 2px solid rgba(77,166,255,0.25); }
   .side-slot .count-badge{ position:absolute; bottom: 6px; right: 6px; background: rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.16); border-radius: 999px; padding: 2px 6px; font-size: 11px; }
@@ -333,21 +339,52 @@ function typeIcon(type){
   return "❓";
 }
 
-function abilityKindForCard(card){
-  const t = String(card?.type||"").toUpperCase();
-  if (t === "SUPPORT") return "HEAL_ALLY";
-  if (t === "UTILITY") return "GAIN_PA_SELF";
-  return "BUFF_ATK_SELF";
+function getActionTargetMode(card, actionType){
+  const id = card?.dbId;
+  if (actionType === "skill") {
+    if (["L-1","L-2","L-3","L-4","L-6","L-7","L-14","L-16","L-18"].includes(id)) return "ally";
+    if (id === "L-11") return "ally_or_enemy";
+    if (["L-17","L-19","L-8","L-9","L-10"].includes(id)) return "none";
+    if (["L-5","L-12","L-15"].includes(id)) return "enemy";
+    const t = String(card?.type||"").toUpperCase();
+    if (t === "SUPPORT") return "ally";
+    if (t === "UTILITY") return "none";
+    return "enemy";
+  }
+  if (actionType === "ult") {
+    if (["L-2","L-3","L-6","L-16"].includes(id)) return "ally";
+    if (id === "L-7") return "ally_or_enemy";
+    if (["L-4","L-5","L-8","L-10","L-11","L-14","L-15","L-17","L-19"].includes(id)) return "none";
+    if (["L-9","L-13","L-18"].includes(id)) return "enemy";
+    if (id === "L-1") return "none";
+    if (id === "L-12") return "ally";
+    const t = String(card?.type||"").toUpperCase();
+    if (t === "SUPPORT") return "ally";
+    if (t === "UTILITY") return "none";
+    return "enemy";
+  }
+  return "none";
 }
 
-function ultimateKindForCard(card){
-  // Prefer explicit metadata if present
-  const k = String(card?.ultKind || "").toUpperCase();
-  if (k) return k;
-  const t = String(card?.type||"").toUpperCase();
-  if (t === "SUPPORT") return "HEAL_ALLY_ULT";
-  if (t === "UTILITY") return "GAIN_PI_ULT";
-  return "BIG_HIT";
+function shouldBlinkTargets(mode){
+  return mode && (mode.type === "hab" || mode.type === "ult") && mode.needs === "enemy";
+}
+
+function hasTeamEffect(role, type){
+  const effects = gameState?.[role]?.teamEffects || [];
+  return effects.some(e => e && e.type === type);
+}
+
+function canTargetBackRow(attacker, enemyRole){
+  if (!attacker) return false;
+  const t = attacker.type;
+  if (t === "Ranged" || t === "Support") return true;
+  if (t === "Melee" || t === "Tank") {
+    if (hasTeamEffect(attacker.owner || ROLE, "l18_backrow_access")) return true;
+    const opp = gameState?.[enemyRole];
+    return !(opp?.front || []).some(c => c);
+  }
+  return false;
 }
 
 
@@ -723,11 +760,18 @@ socket.on("game:event", (ev) => {
   if (ev.type === "attack") {
     requestAnimationFrame(() => runAttackFX(ev));
   }
+  if (ev.type === "ult") {
+    requestAnimationFrame(() => runUltFX(ev));
+  }
   if (ev.type === "death") {
     requestAnimationFrame(() => runDeathFX(ev));
   }
   if (ev.type === "hab") {
     requestAnimationFrame(() => runHabFX(ev));
+  }
+  if (ev.type === "gameOver") {
+    const msg = ev.winner === ROLE ? "Você venceu!" : "Você perdeu!";
+    setTimeout(() => alert(msg), 120);
   }
 });
 
@@ -795,6 +839,14 @@ function spawnDamageNumber(x,y, value, { isReflected=false }={}){
   setTimeout(()=>d.remove(), dur+50);
 }
 
+function animateSlotHit(slot){
+  if (!slot) return;
+  slot.classList.remove("fx-shake");
+  void slot.offsetWidth;
+  slot.classList.add("fx-shake");
+  setTimeout(()=>slot.classList.remove("fx-shake"), 320);
+}
+
 function spawnFloatNumber(x,y, text){
   const d=document.createElement('div');
   d.className='fx-dmg';
@@ -813,6 +865,10 @@ function spawnFloatNumber(x,y, text){
 
 function runHabFX(ev){
   if (!ROLE) return;
+  if (ev.dmgToTarget || ev.dmgToAttacker) {
+    runAttackFX(ev);
+    return;
+  }
   const from = ev.from;
   const fromSlot = getSlotEl(ev.role, from.line, from.index);
   if (!fromSlot) return;
@@ -837,6 +893,10 @@ function runHabFX(ev){
 
 function runUltFX(ev){
   if (!ROLE) return;
+  if (ev.dmgToTarget || ev.dmgToAttacker) {
+    runAttackFX(ev);
+    return;
+  }
   const from = ev.from;
   const fromSlot = getSlotEl(ev.role, from.line, from.index);
   if (!fromSlot) return;
@@ -869,9 +929,9 @@ function runUltFX(ev){
 function runAttackFX(ev){
   if (!ROLE) return;
   const attackerRole = ev.role;
-  const defenderRole = otherRole(attackerRole);
   const from = ev.from;
-  const to = ev.to;
+  const to = ev.to || ev.target?.pos;
+  const defenderRole = ev.target?.role || otherRole(attackerRole);
 
   const fromSlot = getSlotEl(attackerRole, from.line, from.index);
   const toSlot = getSlotEl(defenderRole, to.line, to.index);
@@ -924,16 +984,14 @@ function runAttackFX(ev){
 
     // Damage numbers: on target, and possibly reflected on attacker
     // dmgToTarget: damage applied to target card (not player)
-    if (ev.dmgToTarget && ev.dmgToTarget>0) spawnDamageNumber(b.x, b.y, ev.dmgToTarget, { isReflected:false });
-    if (ev.dmgToAttacker && ev.dmgToAttacker>0) {
-      // show reflected damage on attacker card center
-      const ac = rectCenter(fromSlot);
-      spawnDamageNumber(ac.x, ac.y, ev.dmgToAttacker, { isReflected:true });
+    if (ev.dmgToTarget && ev.dmgToTarget>0) {
+      spawnDamageNumber(b.x, b.y, ev.dmgToTarget, { isReflected:false });
+      animateSlotHit(toSlot);
     }
-if (ev.dmgToAttacker && ev.dmgToAttacker>0) {
-      // show reflected damage on attacker card center
+    if (ev.dmgToAttacker && ev.dmgToAttacker>0) {
       const ac = rectCenter(fromSlot);
       spawnDamageNumber(ac.x, ac.y, ev.dmgToAttacker, { isReflected:true });
+      animateSlotHit(fromSlot);
     }
 
     // Player HP damage numbers (server-authoritative)
@@ -1105,27 +1163,23 @@ function renderBoard(boardEl, state, opts){
           }
           return;
         }
-        if (mode?.type === "hab" && roleName === ROLE && !isEnemy) {
-          if (mode.needs === "ally") {
+        if (mode?.type === "hab") {
+          const wantsEnemy = (mode.needs === "enemy" || mode.needs === "ally_or_enemy") && roleName !== ROLE && isEnemy;
+          const wantsAlly = (mode.needs === "ally" || mode.needs === "ally_or_enemy") && roleName === ROLE && !isEnemy;
+          if (wantsEnemy || wantsAlly) {
             if (!card) return;
-            socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useHab", from: mode.from, target: { role: ROLE, pos: { line, index: actualI } } } });
+            socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useHab", from: mode.from, target: { role: roleName, pos: { line, index: actualI } } } });
             mode = null;
             clearTargetHighlights();
             return;
           }
         }
-                if (mode?.type === "ult") {
-          // Ultimate can target ally or enemy depending on card
-          if (mode.needs === "enemy" && roleName !== ROLE && isEnemy) {
+        if (mode?.type === "ult") {
+          const wantsEnemy = (mode.needs === "enemy" || mode.needs === "ally_or_enemy") && roleName !== ROLE && isEnemy;
+          const wantsAlly = (mode.needs === "ally" || mode.needs === "ally_or_enemy") && roleName === ROLE && !isEnemy;
+          if (wantsEnemy || wantsAlly) {
             if (!card) return;
             socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useUlt", from: mode.from, target: { role: roleName, pos: { line, index: actualI } } } });
-            mode = null;
-            clearTargetHighlights();
-            return;
-          }
-          if (mode.needs === "ally" && roleName === ROLE && !isEnemy) {
-            if (!card) return;
-            socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useUlt", from: mode.from, target: { role: ROLE, pos: { line, index: actualI } } } });
             mode = null;
             clearTargetHighlights();
             return;
@@ -1248,8 +1302,7 @@ function renderGame(){
   renderEnemyHand();
   renderHand();
 
-  if (mode?.type === "attack") highlightEnemyTargets();
-  highlightAllyTargets();
+  updateTargetHighlights();
 }
 
 /**
@@ -1389,13 +1442,13 @@ function renderModal(){
   if (modalCard.zone === "field" && modalCard.role === ROLE) {
     modalActionsEl.appendChild(mkBtn("Habilidade","primary",()=>{
       if (ACTIVE !== ROLE) return alert("Não é sua vez");
-      const cost = 3;
+      const cost = (c.dbId === "L-11") ? 1 : 3;
       if ((c.pa ?? 0) < cost) return alert(`PA insuficiente (custa ${cost}).`);
-      const kind = abilityKindForCard(c);
-      if (kind === "HEAL_ALLY") {
-        mode = { type: "hab", needs: "ally", from: { line: modalCard.line, index: modalCard.index } };
+      const needs = getActionTargetMode(c, "skill");
+      if (needs === "ally" || needs === "enemy" || needs === "ally_or_enemy") {
+        mode = { type: "hab", needs, actionType: "skill", from: { line: modalCard.line, index: modalCard.index } };
         closeModal(false);
-        highlightAllyTargets();
+        updateTargetHighlights();
         return;
       }
       // no target needed
@@ -1426,8 +1479,7 @@ function renderModal(){
       if (cur < 2) return alert("PA insuficiente (ataque custa 2).");
       mode = { type:"attack", from: { line: modalCard.line, index: modalCard.index } };
       closeModal(false);
-      highlightEnemyTargets();
-  highlightAllyTargets();
+      updateTargetHighlights();
     });
         modalActionsEl.appendChild(btnAtk);
 
@@ -1435,13 +1487,12 @@ function renderModal(){
       if (!isMine) return alert("Você só comanda suas cartas.");
       if (ACTIVE !== ROLE) return alert("Não é sua vez");
       const cur = c.pa ?? 0;
-      if (cur < 6) return alert("PA insuficiente (Ultimate custa 6).");
-      const uk = ultimateKindForCard(c);
-      const needs = (uk === "HEAL_ALLY_ULT") ? "ally" : "enemy";
-      mode = { type:"ult", from: { line: modalCard.line, index: modalCard.index }, needs };
+      const ultCost = (c.dbId === "L-14") ? 6 : 5;
+      if (cur < ultCost) return alert(`PA insuficiente (Ultimate custa ${ultCost}).`);
+      const needs = getActionTargetMode(c, "ult");
+      mode = { type:"ult", from: { line: modalCard.line, index: modalCard.index }, needs, actionType: "ult" };
       closeModal(false);
-      if (needs === "enemy") highlightEnemyTargets();
-      else highlightAllyTargets();
+      updateTargetHighlights();
     });
     modalActionsEl.appendChild(btnUlt);
 
@@ -1459,23 +1510,23 @@ function renderModal(){
 
 /* Attack targeting highlight */
 function clearTargetHighlights(){
-  document.querySelectorAll(".slot.targetable").forEach(el => el.classList.remove("targetable"));
+  document.querySelectorAll(".slot.targetable").forEach(el => {
+    el.classList.remove("targetable");
+    el.classList.remove("blinking");
+  });
 }
-function highlightEnemyTargets(){
+function highlightEnemyTargets({ blink = false, actionType = "attack" } = {}){
   clearTargetHighlights();
-  if (!mode || mode.type !== "attack") return;
+  if (!mode) return;
 
   const enemy = otherRole(ROLE);
   const opp = gameState?.[enemy];
   if (!opp) return;
 
   const fromCard = gameState?.[ROLE]?.[mode.from.line]?.[mode.from.index];
-  const attackerType = fromCard?.type;
-
-  const enemyFrontHas = (opp.front || []).some(c => c);
-  const canHitBack =
-    (attackerType === "Ranged" || attackerType === "Support") ||
-    ((attackerType === "Melee" || attackerType === "Tank") && !enemyFrontHas);
+  const canHitBack = (actionType === "skill" && fromCard?.dbId === "L-11")
+    ? true
+    : canTargetBackRow(fromCard, enemy);
 
   ["front","back"].forEach(line => {
     if (line === "back" && !canHitBack) return;
@@ -1483,14 +1534,17 @@ function highlightEnemyTargets(){
       const c = opp[line][i];
       if (!c) continue;
       const slot = document.querySelector(`.slot[data-owner="${enemy}"][data-line="${line}"][data-index="${i}"]`);
-      if (slot) slot.classList.add("targetable");
+      if (slot) {
+        slot.classList.add("targetable");
+        if (blink) slot.classList.add("blinking");
+      }
     }
   });
 }
 
-function highlightAllyTargets(){
+function highlightAllyTargets({ blink = false } = {}){
   clearTargetHighlights();
-  if (!mode || mode.type !== "hab" || mode.needs !== "ally") return;
+  if (!mode || (mode.needs !== "ally" && mode.needs !== "ally_or_enemy")) return;
   const me = gameState?.[ROLE];
   if (!me) return;
   ["front","back"].forEach(line=>{
@@ -1498,10 +1552,29 @@ function highlightAllyTargets(){
       const c = me[line]?.[i];
       if (c){
         const el = getSlotEl(ROLE, line, i);
-        if (el) el.classList.add("targetable");
+        if (el) {
+          el.classList.add("targetable");
+          if (blink) el.classList.add("blinking");
+        }
       }
     }
   });
+}
+
+function updateTargetHighlights(){
+  if (!mode) return clearTargetHighlights();
+  if (mode.type === "attack") return highlightEnemyTargets();
+  if (mode.type === "hab" || mode.type === "ult") {
+    const blink = shouldBlinkTargets(mode);
+    if (mode.needs === "enemy") return highlightEnemyTargets({ blink, actionType: mode.actionType });
+    if (mode.needs === "ally") return highlightAllyTargets({ blink });
+    if (mode.needs === "ally_or_enemy") {
+      highlightEnemyTargets({ blink, actionType: mode.actionType });
+      highlightAllyTargets({ blink });
+      return;
+    }
+  }
+  clearTargetHighlights();
 }
 </script>
 </body>
