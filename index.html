@@ -1437,7 +1437,6 @@ function renderModal(){
       mode = { type: "summon", handIndex: modalCard.handIndex };
       closeModal(false);
     }));
-    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
   }
 
   if (modalCard.zone === "field") {
@@ -1465,16 +1464,14 @@ function renderModal(){
       updateTargetHighlights();
     });
     modalActionsEl.appendChild(btnUlt);
-
-    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
   }
 
   if (modalCard.zone === "model") {
-    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
+    modalActionsEl.innerHTML = "";
   }
 
   if (modalCard.zone === "grave") {
-    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
+    modalActionsEl.innerHTML = "";
   }
 }
 
