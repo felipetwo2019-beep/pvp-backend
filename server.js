@@ -134,6 +134,25 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 const rooms = new Map(); // roomId -> {id, players:[{socketId, role, username}], match, state}
 
+// Limpa salas "abandonadas" (todos desconectados por muito tempo)
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, room] of rooms) {
+    if (!room || !Array.isArray(room.players) || room.players.length === 0) {
+      rooms.delete(id);
+      continue;
+    }
+    const allDisconnected = room.players.every(p => !p?.connected);
+    if (!allDisconnected) continue;
+
+    const last = Math.max(...room.players.map(p => Number(p?.lastSeen || 0)));
+    // 2 minutos de tolerância antes de remover a sala
+    if (now - last > 2 * 60 * 1000) {
+      rooms.delete(id);
+    }
+  }
+}, 30 * 1000);
+
 /**
  * Regras do jogo
  */
@@ -159,7 +178,6 @@ function createEmptyPlayerState() {
     pi: MAX_PI,
     maxPi: MAX_PI,
     username: "",
-    teamEffects: [],
   };
 }
 
@@ -187,12 +205,7 @@ function frontHasAny(room, role) { return room.state[role].front.some((c) => c !
 function canAttackBack(attackerCard, room, enemyRole) {
   const t = attackerCard?.type;
   if (t === "Ranged" || t === "Support") return true;
-  if (t === "Melee" || t === "Tank") {
-    const owner = attackerCard?.owner;
-    const teamEffects = owner ? getTeamEffects(room.state[owner], "l18_backrow_access") : [];
-    if (teamEffects.length > 0) return true;
-    return !frontHasAny(room, enemyRole);
-  }
+  if (t === "Melee" || t === "Tank") return !frontHasAny(room, enemyRole);
   return false;
 }
 
@@ -209,869 +222,93 @@ function applyPlayerDamageFromCardHit(room, ownerRole, cardDamage) {
   return finalDmg;
 }
 
-function checkGameOver(room){
-  if (!room?.match) return null;
-  if (room.match.winner) return room.match.winner;
-  const p1Hp = room.state.p1.playerHp ?? PLAYER_START_HP;
-  const p2Hp = room.state.p2.playerHp ?? PLAYER_START_HP;
-  if (p1Hp <= 0) room.match.winner = "p2";
-  if (p2Hp <= 0) room.match.winner = "p1";
-  return room.match.winner || null;
-}
 
-function emitGameOver(room){
-  const winner = checkGameOver(room);
-  if (!winner) return false;
-  emitEvent(room, { type: "gameOver", winner, loser: winner === "p1" ? "p2" : "p1" });
-  return true;
-}
-
-// ===== Abilities / Status Effects =====
+// ===== Abilities (incremental v1) =====
 const HAB_COST_PA = 3;
-const ULT_COST_PA = 5;
+const HAB_COOLDOWN_TURNS = 1; // one use per own turn
 
-function cardKey(room, role){
-  return `${room.match.turnCounter}:${role}`;
-}
+function cardKey(round, role){ return `${round}:${role}`; }
 
-function ensureCardState(card){
-  if (!card) return;
-  if (!Array.isArray(card.statusEffects)) card.statusEffects = [];
-  if (!Number.isInteger(card.shield)) card.shield = 0;
-}
-
-function addStatusEffect(card, effect){
-  if (!card) return;
-  ensureCardState(card);
-  card.statusEffects = card.statusEffects.filter(e => e.id !== effect.id);
-  card.statusEffects.push({ ...effect });
-  if (effect.type === "shield") {
-    const val = Number.isFinite(effect.value) ? effect.value : 0;
-    card.shield = Math.max(0, (card.shield || 0) + val);
-  }
-}
-
-function removeStatusEffect(card, effect){
-  if (!card || !effect) return;
-  ensureCardState(card);
-  if (effect.type === "shield") {
-    const val = Number.isFinite(effect.value) ? effect.value : 0;
-    card.shield = Math.max(0, (card.shield || 0) - val);
-  }
-  card.statusEffects = card.statusEffects.filter(e => e !== effect);
-}
-
-function addTeamEffect(ps, effect){
-  if (!ps) return;
-  if (!Array.isArray(ps.teamEffects)) ps.teamEffects = [];
-  ps.teamEffects = ps.teamEffects.filter(e => e.id !== effect.id);
-  ps.teamEffects.push({ ...effect });
-}
-
-function getTeamEffects(ps, type){
-  const effects = Array.isArray(ps?.teamEffects) ? ps.teamEffects : [];
-  return effects.filter(e => e.turnsLeft > 0 && (!type || e.type === type));
-}
-
-function isSuppressed(room, role){
-  const ps = room.state[role];
-  return getTeamEffects(ps, "suppress_temp_effects").length > 0;
-}
-
-function getActiveEffects(room, card, type){
-  ensureCardState(card);
-  const suppressed = card?.owner ? isSuppressed(room, card.owner) : false;
-  let effects = card.statusEffects.filter(e => e.turnsLeft > 0);
-  if (suppressed) {
-    effects = effects.filter(e => e?.meta?.ignoreSuppression || e?.meta?.permanent);
-  }
-  if (type) effects = effects.filter(e => e.type === type);
-  return effects;
-}
-
-function getUtilityMultiplierForSide(room, role){
-  const ps = room.state[role];
-  const hasDouble = getTeamEffects(ps, "l14_util_double").length > 0;
-  return hasDouble ? 2 : 1;
-}
-
-function getEffectiveDef(room, card){
-  const defOverride = getActiveEffects(room, card, "def_override");
-  if (defOverride.length > 0) return 0;
-  return Number.isInteger(card?.def) ? card.def : 0;
-}
-
-function getEffectiveAtk(room, card){
-  const baseAtk = Number.isInteger(card?.atk) ? card.atk : 0;
-  const flat = getActiveEffects(room, card, "atk_flat").reduce((sum, e) => sum + (e.value || 0), 0);
-
-  const missingEffects = getActiveEffects(room, card, "atk_missing_hp");
-  let missingBonus = 0;
-  for (const e of missingEffects){
-    const perHp = e.meta?.perHp ?? 30;
-    const bonus = e.meta?.bonus ?? 10;
-    const missing = Math.max(0, (card.maxHp ?? 0) - (card.hp ?? 0));
-    missingBonus += Math.floor(missing / perHp) * bonus;
-  }
-
-  let tribeBonus = 0;
-  for (const e of getActiveEffects(room, card, "atk_per_tribe")){
-    const tribe = e.meta?.tribe;
-    const per = e.meta?.per ?? e.value ?? 0;
-    const owner = e.meta?.owner ?? card.owner;
-    if (!owner || !tribe) continue;
-    const ps = room.state[owner];
-    const count = ["front","back"].reduce((sum, line) => sum + ps[line].filter(c => c && c.tribe === tribe).length, 0);
-    tribeBonus += count * per;
-  }
-
-  let mult = 1;
-
-  for (const e of getActiveEffects(room, card, "atk_mult")){
-    mult *= (e.value || 1);
-  }
-
-  const teamMult = getTeamEffects(room.state[card.owner], "atk_mult");
-  for (const e of teamMult) mult *= (e.value || 1);
-
-  for (const e of getActiveEffects(room, card, "atk_shield_mult")){
-    const perShield = e.meta?.perShield ?? 20;
-    const bonusPct = e.meta?.bonusPct ?? 0;
-    const shieldBonus = Math.floor((card.shield || 0) / perShield) * bonusPct;
-    mult *= (e.value || 1) + shieldBonus;
-  }
-
-  for (const e of getActiveEffects(room, card, "l16_dice")){
-    const atkMult = e.meta?.atkMult ?? 1;
-    mult *= atkMult;
-  }
-
-  return Math.max(0, Math.floor((baseAtk + flat + missingBonus + tribeBonus) * mult));
-}
-
-function getDamageReduction(room, card){
-  const reductions = getActiveEffects(room, card, "damage_reduction").map(e => e.value || 0);
-  const total = reductions.reduce((sum, v) => sum + v, 0);
-  return Math.min(0.9, Math.max(0, total));
-}
-
-function hasDamageImmunity(room, card){
-  return getActiveEffects(room, card, "damage_immunity").length > 0;
-}
-
-function getDamageTakenMultiplier(room, card){
-  const mults = [
-    ...getActiveEffects(room, card, "damage_taken_mult"),
-    ...getActiveEffects(room, card, "l15_runa"),
-  ].map(e => e.value || 1);
-  return mults.reduce((m, v) => m * v, 1);
-}
-
-function isPacifist(room, card){
-  return getActiveEffects(room, card, "pacifist").length > 0;
-}
-
-function canUseAction(room, card, actionType){
-  const key = cardKey(room, card.owner);
-  if (!card.turnActionUses || card.turnActionUses.key !== key){
-    card.turnActionUses = { key, skill: 0, ult: 0 };
-  }
-  const limit = 1;
-  if (card.turnActionUses[actionType] >= limit) return false;
-  card.turnActionUses[actionType] += 1;
-  return true;
-}
-
-function getActionCost(card, actionType){
-  if (actionType === "skill") {
-    return HAB_COST_PA;
-  }
-  if (actionType === "ult") {
-    return ULT_COST_PA;
-  }
-  return ATTACK_PA_COST;
-}
-
-function findCardPosition(room, role, instanceId){
-  const ps = room.state[role];
-  for (const line of ["front","back"]){
-    for (let i=0;i<5;i++){
-      const c = ps[line][i];
-      if (c?.instanceId === instanceId) return { line, index: i };
-    }
-  }
-  return null;
-}
-
-function isSupportAction(card, actionType){
-  return false;
-}
-
-function decrementStatusEffectsForRole(room, role){
-  const ps = room.state[role];
-  for (const line of ["front","back"]){
-    for (let i=0;i<5;i++){
-      const card = ps[line][i];
-      if (!card) continue;
-      ensureCardState(card);
-      for (const effect of [...card.statusEffects]){
-        if (effect?.meta?.permanent) continue;
-        effect.turnsLeft = Math.max(0, (effect.turnsLeft ?? 0) - 1);
-        if (effect.turnsLeft <= 0) {
-          removeStatusEffect(card, effect);
-        }
-      }
-    }
-  }
-  if (Array.isArray(ps.teamEffects)){
-    ps.teamEffects = ps.teamEffects.filter(e => {
-      if (e?.meta?.permanent) return true;
-      e.turnsLeft = Math.max(0, (e.turnsLeft ?? 0) - 1);
-      return e.turnsLeft > 0;
-    });
-  }
-}
-
-function applyStartTurnEffects(room, role){
+function removeExpiredBuffsForRoleEnd(room, role){
+  const round = room.match.round;
   const ps = room.state[role];
   if (!ps) return;
-  const teamPaBonus = getTeamEffects(ps, "pa_bonus_start");
-  const teamPaBonusValue = teamPaBonus.reduce((sum, e) => sum + (e.value || 0), 0);
-  for (const line of ["front","back"]){
+  const lines = ["front","back"];
+  for (const ln of lines){
     for (let i=0;i<5;i++){
-      const card = ps[line][i];
-      if (!card) continue;
-      ensureCardState(card);
-      const cardPaBonus = getActiveEffects(room, card, "pa_bonus_start_card")
-        .filter(e => !e.filters?.targetUid || e.filters?.targetUid === card.instanceId)
-        .reduce((sum, e) => sum + (e.value || 0), 0);
-      const total = teamPaBonusValue + cardPaBonus;
-      if (total > 0) {
-        const maxPa = Number.isInteger(card.maxPa) ? card.maxPa : MAX_CARD_PA;
-        card.pa = Math.min(maxPa, (card.pa ?? 0) + total);
-      }
-      for (const effect of getActiveEffects(room, card, "hp_drain_pct")){
-        const drain = Math.floor((card.maxHp ?? 0) * (effect.value || 0));
-        card.hp = Math.max(0, (card.hp ?? 0) - drain);
-      }
-      for (const effect of getActiveEffects(room, card, "infection")){
-        const dmg = Math.floor(effect.value || 0);
-        card.hp = Math.max(0, (card.hp ?? 0) - dmg);
-      }
-    }
-  }
-}
-
-function cleanupDeadCards(room, role){
-  const ps = room.state[role];
-  if (!ps) return [];
-  const deaths = [];
-  for (const line of ["front","back"]){
-    for (let i=0;i<5;i++){
-      const card = ps[line][i];
-      if (card && (card.hp ?? 0) <= 0) {
-        deaths.push({ role, from: { line, index: i }, card: { ...card, hp: 0 } });
-        ps.graveyard.push({ ...card, hp: 0 });
-        ps[line][i] = null;
-      }
-    }
-  }
-  return deaths;
-}
-
-function handleControlRelease(room){
-  for (const role of ["p1","p2"]){
-    const ps = room.state[role];
-    for (const line of ["front","back"]){
-      for (let i=0;i<5;i++){
-        const card = ps[line][i];
-        if (!card?.controlReleaseTurn) continue;
-        if (room.match.turnCounter < card.controlReleaseTurn) continue;
-        const origin = card.controlOrigin;
-        const originalOwner = origin?.owner;
-        if (!originalOwner) {
-          card.controlReleaseTurn = null;
-          card.controlledBy = null;
-          continue;
-        }
-        const targetPs = room.state[originalOwner];
-        let place = origin?.pos;
-        if (!place || targetPs[place.line][place.index]) {
-          place = null;
-          for (const ln of ["front","back"]){
-            for (let idx=0; idx<5; idx++){
-              if (!targetPs[ln][idx]) { place = { line: ln, index: idx }; break; }
-            }
-            if (place) break;
+      const c = ps[ln][i];
+      if (!c || !Array.isArray(c.buffs) || c.buffs.length===0) continue;
+      const keep = [];
+      for (const b of c.buffs){
+        if (b && b.expiresRound===round && b.expiresRole===role){
+          if (b.kind==="atk"){
+            c.atk = Math.max(0, (Number.isInteger(c.atk)?c.atk:0) - (Number.isInteger(b.amount)?b.amount:0));
           }
-        }
-        if (!place) continue;
-        ps[line][i] = null;
-        card.owner = originalOwner;
-        targetPs[place.line][place.index] = card;
-        card.controlledBy = null;
-        card.controlReleaseTurn = null;
-        card.controlMoved = false;
+          // future buffs here
+        } else keep.push(b);
       }
+      c.buffs = keep;
     }
   }
 }
 
-function canTargetBackRow(room, source, targetRole){
-  const enemyRole = targetRole;
-  const enemy = room.state[enemyRole];
-  if (!enemy.front.some(c => c !== null)) return true;
-  const t = String(source?.type || "").toUpperCase();
-  if (t === "RANGED" || t === "SUPPORT") return true;
-  const teamBackRow = getTeamEffects(room.state[source.owner], "l18_backrow_access");
-  return teamBackRow.length > 0;
-}
-
-function applyDamageToCard(room, source, targetRole, targetPos, amount, options = {}){
-  const targetPs = room.state[targetRole];
-  if (!targetPs) return { dmg: 0, deaths: [] };
-
-  let target = targetPs[targetPos.line]?.[targetPos.index];
-  if (!target) return { dmg: 0, deaths: [] };
-  ensureCardState(target);
-
-  // intercept (redirige o alvo para o "interceptor")
-  const intercepts = getActiveEffects(room, target, "intercept");
-  if (intercepts.length > 0) {
-    const interceptorId = intercepts[0].meta?.sourceInstanceId;
-    const pos = interceptorId ? findCardPosition(room, target.owner, interceptorId) : null;
-    if (pos) {
-      targetPos = pos;
-      target = targetPs[pos.line][pos.index];
-      ensureCardState(target);
-    }
-  }
-
-  // ===== cálculo de dano final (antes de aplicar) =====
-  let finalDmg = Math.max(0, amount);
-
-  if (source && isPacifist(room, source)) finalDmg = 0;
-  if (hasDamageImmunity(room, target)) finalDmg = 0;
-
-  finalDmg *= getDamageTakenMultiplier(room, target);
-
-  const reduction = getDamageReduction(room, target);
-  if (reduction > 0) finalDmg *= (1 - reduction);
-
-  finalDmg = Math.max(0, Math.floor(finalDmg));
-
-  // redirect skeletons
-  if (finalDmg > 0 && !options.skipRedirect) {
-    const redirect = getActiveEffects(room, target, "damage_redirect_skeletons");
-    if (redirect.length > 0) {
-      const owner = target.owner;
-      const ownerPs = room.state[owner];
-      const skeletons = ["front","back"].flatMap(line =>
-        ownerPs[line].filter(c => c && c.instanceId !== target.instanceId && c.tribe === "Esqueletos")
-      );
-      if (skeletons.length > 0) {
-        const redirectTotal = finalDmg * 0.2;
-        const per = redirectTotal / skeletons.length;
-        finalDmg -= redirectTotal;
-
-        for (const skel of skeletons) {
-          const pos = findCardPosition(room, owner, skel.instanceId);
-          if (pos) {
-            applyDamageToCard(room, source, owner, pos, per, { skipRedirect: true, skipReflect: true, isSplash: true });
-          }
-        }
-      }
-    }
-  }
-
-  // shield absorve primeiro
-  if (finalDmg > 0 && (target.shield || 0) > 0) {
-    const absorbed = Math.min(target.shield, finalDmg);
-    target.shield -= absorbed;
-    finalDmg -= absorbed;
-  }
-
-  // aplica no HP
-  if (finalDmg > 0) {
-    target.hp = Math.max(0, (target.hp ?? 0) - finalDmg);
-  }
-
-  // mortes
-  const deaths = [];
-  if ((target.hp ?? 0) <= 0) {
-    deaths.push({ role: targetRole, from: { line: targetPos.line, index: targetPos.index }, card: { ...target, hp: 0 } });
-    targetPs.graveyard.push({ ...target, hp: 0 });
-    targetPs[targetPos.line][targetPos.index] = null;
-  }
-
-  return { dmg: finalDmg, deaths, resolvedTarget: { role: targetRole, pos: targetPos, card: target } };
-}
-
-function handlePaSteal(room, source, targetCard){
-  if (!source || !targetCard || targetCard.pa <= 0) return;
-  const removePa = () => {
-    targetCard.pa = Math.max(0, (targetCard.pa ?? 0) - 1);
-  };
-  const guaranteed = getActiveEffects(room, source, "next_attack_steal_pa");
-  if (guaranteed.length > 0) {
-    removePa();
-    source.statusEffects = source.statusEffects.filter(e => e.type !== "next_attack_steal_pa");
-    return;
-  }
-  const teamEffects = getTeamEffects(room.state[source.owner], "pa_steal_on_damage");
-  if (teamEffects.length > 0) {
-    const chance = Math.max(...teamEffects.map(e => e.chance ?? 0));
-    if (Math.random() < chance) removePa();
-  }
-}
-
-/* executeSupportAction + applyAction are included here in the file
-   (omitted in this preview block for brevity in this Python cell).
-   They are present in the generated file below. */
-
-# To keep this cell size manageable, we append the remainder from a prepared file stored in-memory.
-
-function executeSupportAction(room, actionType, source, target){
-  const owner = room.state[source.owner];
-  const utilMult = getUtilityMultiplierForSide(room, source.owner);
-  const effectTarget = target?.card || source;
-
-  if (source.dbId === "L-1" && actionType === "skill") {
-    for (const ally of ["front","back"].flatMap(line => owner[line].filter(c => c))) {
-      if (ally.instanceId === source.instanceId || ally.tribe === "Guerreiro") {
-        addStatusEffect(ally, {
-          id: `l1_skill_${source.instanceId}_${ally.instanceId}`,
-          sourceDbId: source.dbId,
-          type: "atk_flat",
-          value: 50,
-          turnsLeft: 3,
-          filters: {},
-          meta: {}
-        });
-      }
-    }
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-2" && actionType === "skill") {
-    for (const ally of ["front","back"].flatMap(line => owner[line].filter(c => c))) {
-      if (ally.type === "Ranged" || ally.type === "Support") {
-        addStatusEffect(ally, { id:`l2_skill_${source.instanceId}_${ally.instanceId}`, sourceDbId: source.dbId, type:"crit_chance", value:0.2, turnsLeft:2, filters:{}, meta:{} });
-      }
-    }
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-2" && actionType === "ult") {
-    for (const ally of ["front","back"].flatMap(line => owner[line].filter(c => c))) {
-      addStatusEffect(ally, { id:`l2_ult_${source.instanceId}_${ally.instanceId}`, sourceDbId: source.dbId, type:"crit_chance", value:1, turnsLeft:1, filters:{}, meta:{} });
-    }
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-3" && actionType === "skill") {
-    addStatusEffect(source, { id:`l3_skill_${source.instanceId}`, sourceDbId: source.dbId, type:"atk_missing_hp", value:0, turnsLeft:4, filters:{}, meta:{ perHp:30, bonus:10 } });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-3" && actionType === "ult") {
-    if (!effectTarget) return { ok:false, reason:"need_target" };
-    addStatusEffect(effectTarget, { id:`l3_intercept_${source.instanceId}_${effectTarget.instanceId}`, sourceDbId: source.dbId, type:"intercept", value:0, turnsLeft:2, filters:{}, meta:{ sourceInstanceId: source.instanceId } });
-    addStatusEffect(source, { id:`l3_reduce_${source.instanceId}`, sourceDbId: source.dbId, type:"damage_reduction", value:0.3, turnsLeft:2, filters:{}, meta:{} });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-4" && actionType === "skill") {
-    for (const ally of ["front","back"].flatMap(line => owner[line].filter(c => c))) {
-      ally.pa = Math.min(10, (ally.pa ?? 0) + 2);
-    }
-    addTeamEffect(owner, { id:`l4_next_pa_${source.instanceId}_${Date.now()}`, sourceDbId: source.dbId, type:"pa_bonus_start", value:2, turnsLeft:1, filters:{}, meta:{} });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-4" && actionType === "ult") {
-    for (const ally of ["front","back"].flatMap(line => owner[line].filter(c => c))) {
-      const missing = Math.max(0, (ally.maxHp ?? 0) - (ally.hp ?? 0));
-      ally.hp = Math.min(ally.maxHp ?? ally.hp, (ally.hp ?? 0) + missing);
-    }
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-5" && actionType === "ult") {
-    addStatusEffect(source, { id:`l5_ult_def_${source.instanceId}`, sourceDbId: source.dbId, type:"def_override", value:0, turnsLeft:2, filters:{}, meta:{} });
-    addStatusEffect(source, { id:`l5_ult_atk_${source.instanceId}`, sourceDbId: source.dbId, type:"atk_mult", value:1.75, turnsLeft:2, filters:{}, meta:{} });
-    addStatusEffect(source, { id:`l5_ult_drain_${source.instanceId}`, sourceDbId: source.dbId, type:"hp_drain_pct", value:0.25, turnsLeft:2, filters:{}, meta:{ timing:"start_turn_owner" } });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-6" && actionType === "skill") {
-    for (const ally of ["front","back"].flatMap(line => owner[line].filter(c => c))) {
-      addStatusEffect(ally, { id:`l6_skill_${source.instanceId}_${ally.instanceId}`, sourceDbId: source.dbId, type:"damage_reduction", value:0.1, turnsLeft:2, filters:{}, meta:{} });
-    }
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-6" && actionType === "ult") {
-    if (!effectTarget) return { ok:false, reason:"need_target" };
-    addStatusEffect(effectTarget, { id:`l6_ult_${source.instanceId}_${effectTarget.instanceId}`, sourceDbId: source.dbId, type:"damage_immunity", value:1, turnsLeft:1, filters:{}, meta:{} });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-7" && actionType === "skill") {
-    if (!effectTarget) return { ok:false, reason:"need_target" };
-    const totalHand = room.state.p1.hand.length + room.state.p2.hand.length;
-    const bonus = totalHand * 10;
-    addStatusEffect(effectTarget, { id:`l7_skill_${source.instanceId}_${effectTarget.instanceId}`, sourceDbId: source.dbId, type:"atk_flat", value:bonus, turnsLeft:2, filters:{ targetUid: effectTarget.instanceId }, meta:{ perHand:10 } });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-7" && actionType === "ult") {
-    if (!effectTarget) return { ok:false, reason:"need_target" };
-    if (effectTarget.owner === source.owner) {
-      effectTarget.hp = effectTarget.maxHp ?? effectTarget.hp;
-      if (!Number.isFinite(effectTarget.maxHp)) effectTarget.maxHp = effectTarget.hp;
-    }
-    addStatusEffect(effectTarget, { id:`l7_ult_${source.instanceId}_${effectTarget.instanceId}`, sourceDbId: source.dbId, type:"pacifist", value:1, turnsLeft: effectTarget.owner === source.owner ? 1 : 2, filters:{}, meta:{} });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-8" && actionType === "skill") {
-    const skeletonsField = ["front","back"].flatMap(line => owner[line].filter(c => c && c.tribe === "Esqueletos"));
-    const skeletonsGy = owner.graveyard.filter(c => c.tribe === "Esqueletos");
-    const bonus = (skeletonsField.length + skeletonsGy.length) * 20;
-    addStatusEffect(source, { id:`l8_skill_atk_${source.instanceId}`, sourceDbId: source.dbId, type:"atk_flat", value:bonus, turnsLeft:2, filters:{}, meta:{ countField: skeletonsField.length, countGy: skeletonsGy.length } });
-    addStatusEffect(source, { id:`l8_skill_redirect_${source.instanceId}`, sourceDbId: source.dbId, type:"damage_redirect_skeletons", value:0.2, turnsLeft:1, filters:{}, meta:{} });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-8" && actionType === "ult") {
-    const bonus = owner.graveyard.filter(c => c.tribe === "Esqueletos").reduce((sum, c) => sum + (c.atk || 0), 0);
-    addStatusEffect(source, { id:`l8_ult_atk_${source.instanceId}`, sourceDbId: source.dbId, type:"atk_flat", value:bonus, turnsLeft:1, filters:{}, meta:{} });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-9" && actionType === "skill") {
-    addStatusEffect(source, { id:`l9_skill_atk_${source.instanceId}`, sourceDbId: source.dbId, type:"atk_per_tribe", value:20, turnsLeft:2, filters:{}, meta:{ tribe:"Lanceiros", per:20, owner: source.owner } });
-    addStatusEffect(source, { id:`l9_spill_${source.instanceId}`, sourceDbId: source.dbId, type:"l9_spill", value:0.3, turnsLeft:2, filters:{}, meta:{} });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-10" && actionType === "skill") {
-    addStatusEffect(source, { id:`l10_skill_reduction_${source.instanceId}`, sourceDbId: source.dbId, type:"damage_reduction", value:0.2, turnsLeft:3, filters:{}, meta:{} });
-    addStatusEffect(source, { id:`l10_skill_atk_${source.instanceId}`, sourceDbId: source.dbId, type:"atk_shield_mult", value:1.1, turnsLeft:3, filters:{}, meta:{ perShield:20, bonusPct:0.02 } });
-    addStatusEffect(source, { id:`l10_skill_active_${source.instanceId}`, sourceDbId: source.dbId, type:"l10_skill_active", value:1, turnsLeft:3, filters:{}, meta:{} });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-10" && actionType === "ult") {
-    for (const ally of ["front","back"].flatMap(line => owner[line].filter(c => c))) {
-      const shieldValue = Math.floor((ally.maxHp ?? 0) * 0.2);
-      addStatusEffect(ally, { id:`l10_ult_shield_${source.instanceId}_${ally.instanceId}`, sourceDbId: source.dbId, type:"shield", value:shieldValue, turnsLeft:2, filters:{}, meta:{} });
-    }
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-11" && actionType === "skill") {
-    if (!effectTarget) return { ok:false, reason:"need_target" };
-    const targetOwner = room.state[effectTarget.owner];
-    const fromPos = findCardPosition(room, effectTarget.owner, effectTarget.instanceId);
-    if (!fromPos) return { ok:false, reason:"bad_target" };
-    const toLine = fromPos.line === "front" ? "back" : "front";
-    const swapCard = targetOwner[toLine][fromPos.index];
-    targetOwner[fromPos.line][fromPos.index] = swapCard || null;
-    targetOwner[toLine][fromPos.index] = effectTarget;
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-11" && actionType === "ult") {
-    const drunkId = `l11_drunk_${source.instanceId}`;
-    const soberId = `l11_sober_${source.instanceId}`;
-    ensureCardState(source);
-    const hasDrunk = source.statusEffects.some(e => e.id === drunkId);
-    const hasSober = source.statusEffects.some(e => e.id === soberId);
-    source.statusEffects = source.statusEffects.filter(e => e.id !== drunkId && e.id !== soberId);
-    if (hasDrunk || !hasSober) {
-      addStatusEffect(source, { id: soberId, sourceDbId: source.dbId, type:"atk_mult", value:1.25, turnsLeft:1, filters:{}, meta:{ permanent:true } });
-    } else {
-      addStatusEffect(source, { id: drunkId, sourceDbId: source.dbId, type:"damage_reduction", value:0.25, turnsLeft:1, filters:{}, meta:{ permanent:true } });
-    }
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-12" && actionType === "ult") {
-    const allies = ["front","back"].flatMap(line => owner[line].filter(c => c));
-    const enemies = ["front","back"].flatMap(line => room.state[enemyRoleOf(source.owner)][line].filter(c => c));
-    const poisonBase = Math.floor(getEffectiveAtk(room, source) * 0.2);
-    for (const enemy of enemies) {
-      addStatusEffect(enemy, { id:`l12_ult_infect_${source.instanceId}_${enemy.instanceId}`, sourceDbId: source.dbId, type:"infection", value:poisonBase, turnsLeft:2, filters:{}, meta:{ sourceInstanceId: source.instanceId } });
-    }
-    for (const ally of allies) {
-      const heal = Math.floor((ally.maxHp ?? 0) * 0.2);
-      ally.hp = Math.min(ally.maxHp ?? ally.hp, (ally.hp ?? 0) + heal);
-    }
-    const buffTarget = effectTarget || source;
-    const bonus = allies.length * 20;
-    addStatusEffect(buffTarget, { id:`l12_ult_buff_${source.instanceId}_${buffTarget.instanceId}`, sourceDbId: source.dbId, type:"atk_flat", value:bonus, turnsLeft:2, filters:{ targetUid: buffTarget.instanceId }, meta:{} });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-13" && actionType === "skill") {
-    const originRole = target?.role || source.owner;
-    const origin = room.state[originRole];
-    const targetCard = target?.graveyardCard || origin.graveyard[0];
-    if (!targetCard) return { ok:false, reason:"no_target" };
-    if (!["COMMON","RARE","EPIC"].includes(String(targetCard.rarity || "").toUpperCase())) return { ok:false, reason:"rarity" };
-    const necroCount = ["front","back"].flatMap(line => owner[line].filter(c => c?.isNecroSummon)).length;
-    if (necroCount >= 2) return { ok:false, reason:"limit" };
-    const place = ["front","back"].flatMap(line => owner[line].map((c, idx) => ({ line, idx, c }))).find(s => !s.c);
-    if (!place) return { ok:false, reason:"no_space" };
-    const idx = origin.graveyard.findIndex(c => c.instanceId === targetCard.instanceId);
-    if (idx !== -1) origin.graveyard.splice(idx, 1);
-    const summoned = { ...targetCard, owner: source.owner, isNecroSummon: true, necromancerId: source.instanceId, necroOriginalOwner: targetCard.owner || originRole };
-    addStatusEffect(summoned, { id:`l13_necro_${source.instanceId}_${summoned.instanceId}`, sourceDbId: source.dbId, type:"necro_control", value:0, turnsLeft:99, filters:{}, meta:{} });
-    owner[place.line][place.idx] = summoned;
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-13" && actionType === "ult") {
-    if (!effectTarget) return { ok:false, reason:"need_target" };
-    if (effectTarget.controlImmune || effectTarget.controlledBy) return { ok:false, reason:"control_immune" };
-    const originPos = findCardPosition(room, effectTarget.owner, effectTarget.instanceId);
-    if (!originPos) return { ok:false, reason:"bad_target" };
-    effectTarget.controlledBy = source.owner;
-    effectTarget.controlOrigin = { owner: effectTarget.owner, pos: originPos };
-    effectTarget.controlReleaseTurn = room.match.turnCounter + 2;
-    effectTarget.controlImmune = true;
-    const spot = ["front","back"].flatMap(line => owner[line].map((c, idx) => ({ line, idx, c }))).find(s => !s.c);
-    if (spot) {
-      room.state[enemyRoleOf(source.owner)][originPos.line][originPos.index] = null;
-      effectTarget.owner = source.owner;
-      effectTarget.controlMoved = true;
-      owner[spot.line][spot.idx] = effectTarget;
-    }
-    addStatusEffect(effectTarget, { id:`l13_control_${source.instanceId}_${effectTarget.instanceId}`, sourceDbId: source.dbId, type:"mind_control", value:1, turnsLeft:2, filters:{}, meta:{ controller: source.owner } });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-14" && actionType === "skill") {
-    if (!effectTarget) return { ok:false, reason:"need_target" };
-    addTeamEffect(owner, { id:`l14_util_double_${source.owner}`, sourceDbId: source.dbId, type:"l14_util_double", value:2, turnsLeft:2, filters:{}, meta:{ sourceSide: source.owner } });
-    const paGain = 2 * utilMult;
-    effectTarget.pa = Math.min(10, (effectTarget.pa ?? 0) + paGain);
-    addStatusEffect(effectTarget, { id:`l14_pa_boost_${effectTarget.instanceId}`, sourceDbId: source.dbId, type:"pa_bonus_start_card", value:paGain, turnsLeft:1, filters:{ targetUid: effectTarget.instanceId }, meta:{} });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-14" && actionType === "ult") {
-    const enemy = room.state[enemyRoleOf(source.owner)];
-    addTeamEffect(enemy, { id:`l14_suppress_${source.instanceId}_${Date.now()}`, sourceDbId: source.dbId, type:"suppress_temp_effects", value:1, turnsLeft:2, filters:{}, meta:{ sourceSide: source.owner } });
-    for (const enemyCard of ["front","back"].flatMap(line => enemy[line].filter(c => c))) {
-      addStatusEffect(enemyCard, { id:`l14_vuln_${source.instanceId}_${enemyCard.instanceId}`, sourceDbId: source.dbId, type:"damage_taken_mult", value:1.25, turnsLeft:2, filters:{}, meta:{ ignoreSuppression:true } });
-    }
-    for (const ally of ["front","back"].flatMap(line => owner[line].filter(c => c))) {
-      const shieldValue = Math.floor((ally.maxHp ?? 0) * 0.1);
-      addStatusEffect(ally, { id:`l14_shield_${source.instanceId}_${ally.instanceId}`, sourceDbId: source.dbId, type:"shield", value:shieldValue, turnsLeft:2, filters:{}, meta:{} });
-    }
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-15" && actionType === "ult") {
-    const enemy = room.state[enemyRoleOf(source.owner)];
-    const runeTargets = ["front","back"].flatMap(line => enemy[line].filter(c => c && getActiveEffects(room, c, "l15_runa").length > 0));
-    if (runeTargets.length === 0) return { ok:false, reason:"no_runes" };
-    let defPct = 0.25;
-    let atkPct = 0.25;
-    if (runeTargets.length === 1) { defPct = 1; atkPct = 0.5; }
-    else if (runeTargets.length === 2) { defPct = 0.75; atkPct = 0.35; }
-    else if (runeTargets.length === 3) { defPct = 0.5; atkPct = 0.3; }
-    for (const targetCard of runeTargets) {
-      const defLoss = Math.floor((targetCard.def ?? 0) * defPct);
-      const atkLoss = Math.floor((targetCard.atk ?? 0) * atkPct);
-      targetCard.def = Math.max(0, (targetCard.def ?? 0) - defLoss);
-      targetCard.atk = Math.max(0, (targetCard.atk ?? 0) - atkLoss);
-      source.atk = (source.atk ?? 0) + atkLoss;
-    }
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-16" && actionType === "skill") {
-    if (!effectTarget) return { ok:false, reason:"need_target" };
-    const roll = Math.floor(Math.random() * 6) + 1;
-    const healChance = roll * 0.1;
-    const atkMult = 1 + (roll * 0.05);
-    addStatusEffect(effectTarget, { id:`l16_dice_${source.instanceId}_${effectTarget.instanceId}`, sourceDbId: source.dbId, type:"l16_dice", value:0, turnsLeft:1, filters:{ targetUid: effectTarget.instanceId }, meta:{ roll, healChance, atkMult } });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-16" && actionType === "ult") {
-    if (!effectTarget) return { ok:false, reason:"need_target" };
-    const suit = target?.suit || ["swords","hearts","gold","clubs"][Math.floor(Math.random() * 4)];
-    addStatusEffect(source, { id:`l16_suit_${source.instanceId}`, sourceDbId: source.dbId, type:"l16_suit_badge", value:0, turnsLeft:1, filters:{}, meta:{ label: suit, icon: suit } });
-    if (suit === "swords") {
-      addStatusEffect(effectTarget, { id:`l16_swords_${source.instanceId}_${effectTarget.instanceId}`, sourceDbId: source.dbId, type:"atk_mult", value:1.75, turnsLeft:1, filters:{ targetUid: effectTarget.instanceId }, meta:{} });
-    }
-    if (suit === "hearts") {
-      const healAmount = Math.floor((effectTarget.maxHp ?? 0) * 0.75 * utilMult);
-      effectTarget.hp = Math.min(effectTarget.maxHp ?? effectTarget.hp, (effectTarget.hp ?? 0) + healAmount);
-    }
-    if (suit === "gold") {
-      const enemyEntity = room.state[enemyRoleOf(source.owner)];
-      for (const enemy of ["front","back"].flatMap(line => enemyEntity[line].filter(c => c))) {
-        enemy.statusEffects = enemy.statusEffects?.filter(e => e.type !== "atk_mult") || [];
-        addStatusEffect(enemy, { id:`l16_gold_${source.instanceId}_${enemy.instanceId}`, sourceDbId: source.dbId, type:"atk_mult", value:0.85, turnsLeft:1, filters:{}, meta:{} });
-      }
-    }
-    if (suit === "clubs") {
-      const paGain = 2 * utilMult;
-      for (const ally of ["front","back"].flatMap(line => owner[line].filter(c => c))) {
-        ally.pa = Math.min(10, (ally.pa ?? 0) + paGain);
-      }
-      addTeamEffect(owner, { id:`l16_clubs_next_${source.instanceId}_${Date.now()}`, sourceDbId: source.dbId, type:"pa_bonus_start", value:paGain, turnsLeft:1, filters:{}, meta:{ sourceSide: source.owner } });
-    }
-    return { ok:true, support:true, suit };
-  }
-  if (source.dbId === "L-17" && actionType === "skill") {
-    drawOne(room, source.owner);
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-17" && actionType === "ult") {
-    const opponent = enemyRoleOf(source.owner);
-    drawOne(room, opponent);
-    const oppState = room.state[opponent];
-    const steals = Math.min(2, oppState.hand.length);
-    for (let i=0;i<steals;i++){
-      const idx = Math.floor(Math.random() * oppState.hand.length);
-      const stolen = oppState.hand.splice(idx, 1)[0];
-      if (stolen) {
-        stolen.owner = source.owner;
-        owner.hand.push(stolen);
-      }
-    }
-    oppState.handCount = oppState.hand.length;
-    owner.handCount = owner.hand.length;
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-18" && actionType === "skill") {
-    addTeamEffect(owner, { id:`l18_vanguard_atk_${source.owner}`, sourceDbId: source.dbId, type:"atk_mult", value:1.2, turnsLeft:2, filters:{ owner: source.owner }, meta:{} });
-    addTeamEffect(owner, { id:`l18_vanguard_back_${source.owner}`, sourceDbId: source.dbId, type:"l18_backrow_access", value:1, turnsLeft:2, filters:{ owner: source.owner }, meta:{} });
-    if (effectTarget) {
-      effectTarget.pa = Math.min(10, (effectTarget.pa ?? 0) + 2);
-      addStatusEffect(effectTarget, { id:`l18_vanguard_pa_${source.instanceId}_${effectTarget.instanceId}`, sourceDbId: source.dbId, type:"pa_bonus_start_card", value:2, turnsLeft:1, filters:{ targetUid: effectTarget.instanceId }, meta:{} });
-    }
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-18" && actionType === "ult") {
-    if (!effectTarget) return { ok:false, reason:"need_target" };
-    const enemyRole = enemyRoleOf(source.owner);
-    const enemyState = room.state[enemyRole];
-    const targetPos = findCardPosition(room, enemyRole, effectTarget.instanceId);
-    if (targetPos) {
-      enemyState[targetPos.line][targetPos.index] = null;
-      enemyState.deck.unshift(effectTarget);
-    }
-    if (enemyState.hand.length > 0) {
-      const idx = Math.floor(Math.random() * enemyState.hand.length);
-      const picked = enemyState.hand.splice(idx, 1)[0];
-      if (picked) enemyState.deck.push(picked);
-    }
-    if (enemyState.graveyard.length > 0) {
-      const idx = Math.floor(Math.random() * enemyState.graveyard.length);
-      const picked = enemyState.graveyard.splice(idx, 1)[0];
-      if (picked) {
-        picked.owner = source.owner;
-        owner.graveyard.push(picked);
-      }
-    }
-    enemyState.handCount = enemyState.hand.length;
-    enemyState.deckCount = enemyState.deck.length;
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-19" && actionType === "skill") {
-    for (const ally of ["front","back"].flatMap(line => owner[line].filter(c => c))) {
-      ally.pa = Math.min(10, (ally.pa ?? 0) + 1);
-    }
-    addTeamEffect(owner, { id:`l19_rhythm_pa_${source.instanceId}`, sourceDbId: source.dbId, type:"pa_bonus_start", value:2, turnsLeft:1, filters:{ owner: source.owner }, meta:{} });
-    addTeamEffect(owner, { id:`l19_rhythm_steal_${source.instanceId}`, sourceDbId: source.dbId, type:"pa_steal_on_damage", chance:0.1, turnsLeft:2, filters:{ owner: source.owner }, meta:{} });
-    return { ok:true, support:true };
-  }
-  if (source.dbId === "L-19" && actionType === "ult") {
-    addStatusEffect(source, { id:`l19_next_attack_${source.instanceId}`, sourceDbId: source.dbId, type:"next_attack_steal_pa", value:1, turnsLeft:2, filters:{}, meta:{} });
-    addTeamEffect(owner, { id:`l19_ult_steal_${source.instanceId}`, sourceDbId: source.dbId, type:"pa_steal_on_damage", chance:0.4, turnsLeft:1, filters:{ owner: source.owner }, meta:{} });
-    return { ok:true, support:true };
-  }
-  return { ok:false, reason:"unsupported" };
-}
-
-function applyAction(room, role, from, target, actionType){
-  const ps = room.state[role];
-  if (!ps) return { ok:false, reason:"no_player" };
-  const source = ps[from.line]?.[from.index];
-  if (!source) return { ok:false, reason:"no_card" };
-
-  source.owner = role;
-  ensureCardState(source);
-
-  const cost = getActionCost(source, actionType);
-  if ((source.pa ?? 0) < cost) return { ok:false, reason:"no_pa" };
-  if (!canUseAction(room, source, actionType)) return { ok:false, reason:"cooldown" };
-
-  // resolve target (board OR graveyard)
-  let resolvedTarget = null;
-  let targetCard = null;
-
-  if (target?.role && target?.pos) {
-    targetCard = room.state[target.role]?.[target.pos.line]?.[target.pos.index] || null;
-    if (targetCard) resolvedTarget = { role: target.role, pos: target.pos, card: targetCard };
-  }
-  if (target?.role && Number.isInteger(target.graveyardIndex)) {
-    const gyCard = room.state[target.role]?.graveyard?.[target.graveyardIndex] || null;
-    resolvedTarget = { role: target.role, graveyardCard: gyCard };
-  }
-  if (target?.role && target?.instanceId) {
-    const gyCard = room.state[target.role]?.graveyard?.find(c => c.instanceId === target.instanceId) || null;
-    resolvedTarget = { role: target.role, graveyardCard: gyCard };
-  }
-
-  // trava backrow contra inimigo
-  if (targetCard && targetCard.owner !== role && target?.pos?.line === "back" && !canTargetBackRow(room, source, target.role)) {
-    return { ok:false, reason:"front_block" };
-  }
-
-  // paga custo
-  source.pa -= cost;
-
-  // ===== ações ofensivas =====
-  const multiplier = actionType === "skill" ? 1.2 : 2.5;
-  let rawDmg = getEffectiveAtk(room, source) * multiplier;
-
-  const enemyRole = enemyRoleOf(role);
-  if (!resolvedTarget || resolvedTarget.role !== enemyRole || !resolvedTarget.pos || !resolvedTarget.card) {
-    // ações ofensivas precisam alvo inimigo no campo
-    // rollback do PA/cooldown
-    source.pa += cost;
-    if (source.turnActionUses && source.turnActionUses[actionType] > 0) source.turnActionUses[actionType] -= 1;
-    return { ok:false, reason:"need_enemy_target" };
-  }
-
-  const targetDef = getEffectiveDef(room, resolvedTarget.card);
-  const rawDelta = Math.floor(rawDmg - targetDef);
-  let finalDmg = rawDelta > 0 ? rawDelta : 0;
-
-  let deaths = [];
-  let dmgToTarget = 0;
-  let dmgToAttacker = 0;
-  let playerDmgToEnemy = 0;
-  let playerDmgToMe = 0;
-
-  if (rawDelta > 0) {
-    const damageRes = applyDamageToCard(room, source, resolvedTarget.role, resolvedTarget.pos, finalDmg);
-    dmgToTarget = damageRes.dmg || 0;
-    deaths = deaths.concat(damageRes.deaths || []);
-    if (dmgToTarget > 0) playerDmgToEnemy = applyPlayerDamageFromCardHit(room, resolvedTarget.role, dmgToTarget);
-  } else if (rawDelta < 0) {
-    const reflect = Math.abs(rawDelta);
-    const reflectRes = applyDamageToCard(room, resolvedTarget.card, role, from, reflect, { skipRedirect: true });
-    dmgToAttacker = reflectRes.dmg || 0;
-    deaths = deaths.concat(reflectRes.deaths || []);
-    if (dmgToAttacker > 0) playerDmgToMe = applyPlayerDamageFromCardHit(room, role, dmgToAttacker);
-    finalDmg = 0;
-  }
-
-  return {
-    ok:true,
-    actionType,
-    from,
-    role,
-    target: { role: resolvedTarget.role, pos: resolvedTarget.pos },
-    dmg: dmgToTarget,
-    dmgToTarget,
-    dmgToAttacker,
-    playerDmgToEnemy,
-    playerDmgToMe,
-    deaths
-  };
+function abilityKindForCard(card){
+  // Simple rules for incremental v1:
+  // Support: heal an allied card
+  // Utility: gain PA on self
+  // Others: buff self ATK until end of current turn
+  const t = String(card?.type||"").toUpperCase();
+  if (t === "SUPPORT") return "HEAL_ALLY";
+  if (t === "UTILITY") return "GAIN_PA_SELF";
+  return "BUFF_ATK_SELF";
 }
 
 function applyHab(room, role, from, target){
-  return applyAction(room, role, from, target, "skill");
-}
+  const round = room.match.round;
+  const ps = room.state[role];
+  if (!ps) return { ok:false, reason:"no_player" };
 
-function applyUlt(room, role, from, target){
-  return applyAction(room, role, from, target, "ult");
+  const attacker = ps[from.line]?.[from.index];
+  if (!attacker) return { ok:false, reason:"no_card" };
+
+  // cost + cooldown
+  const k = cardKey(round, role);
+  if (attacker.lastHabAt === k) return { ok:false, reason:"cooldown" };
+  if ((Number.isInteger(attacker.pa)?attacker.pa:0) < HAB_COST_PA) return { ok:false, reason:"no_pa" };
+
+  const kind = abilityKindForCard(attacker);
+
+  let result = { kind, from, role, ok:true };
+
+  // pay cost
+  attacker.pa -= HAB_COST_PA;
+  attacker.lastHabAt = k;
+
+  if (kind === "HEAL_ALLY") {
+    if (!target || target.role !== role) return { ok:false, reason:"need_ally_target" };
+    const tps = room.state[target.role];
+    const tc = tps?.[target.pos?.line]?.[target.pos?.index];
+    if (!tc) return { ok:false, reason:"bad_target" };
+    const heal = 80;
+    const maxHp = Number.isInteger(tc.maxHp) ? tc.maxHp : (Number.isInteger(tc.hp)?tc.hp:0);
+    const before = Number.isInteger(tc.hp)?tc.hp:0;
+    tc.hp = Math.min(maxHp, before + heal);
+    result.delta = tc.hp - before;
+    result.target = { role: target.role, pos: target.pos };
+  } else if (kind === "GAIN_PA_SELF") {
+    const gain = 2;
+    const before = Number.isInteger(attacker.pa)?attacker.pa:0;
+    attacker.pa = Math.min(11, before + gain);
+    result.delta = attacker.pa - before;
+  } else if (kind === "BUFF_ATK_SELF") {
+    const amt = 30;
+    attacker.atk = (Number.isInteger(attacker.atk)?attacker.atk:0) + amt;
+    if (!Array.isArray(attacker.buffs)) attacker.buffs = [];
+    attacker.buffs.push({ kind:"atk", amount: amt, expiresRound: round, expiresRole: role });
+    result.delta = amt;
+  }
+
+  return result;
 }
 
 function redactStateForRole(fullState, viewerRole) {
@@ -1089,6 +326,7 @@ function emitEvent(room, event) {
 
 function sendSync(room) {
   for (const p of room.players) {
+    if (!p || !p.connected || !p.socketId) continue;
     io.to(p.socketId).emit("game:sync", {
       roomId: room.id,
       role: p.role,
@@ -1133,11 +371,6 @@ function gainPAOnBoard(room, role, gain) {
 }
 
 function startTurn(room, role, { isGameStart = false } = {}) {
-  handleControlRelease(room);
-  applyStartTurnEffects(room, role);
-  const deaths = cleanupDeadCards(room, role);
-  decrementStatusEffectsForRole(room, role);
-
   room.match.activeRole = role;
   room.match.drawnThisTurn[role] = false;
 
@@ -1146,7 +379,6 @@ function startTurn(room, role, { isGameStart = false } = {}) {
   room.match.drawnThisTurn[role] = true;
 
   emitEvent(room, { type: "turnStart", role, round: room.match.round, isGameStart: !!isGameStart });
-  if (deaths.length) emitEvent(room, { type: "death", deaths });
   if (card) emitEvent(room, { type: "draw", role });
 }
 
@@ -1154,9 +386,7 @@ function initGameForRoom(room) {
   room.match = {
     activeRole: "p1",
     round: 1,
-    turnCounter: 1,
     drawnThisTurn: { p1: false, p2: false },
-    winner: null,
   };
   room.state = createNewGameState();
 
@@ -1170,7 +400,6 @@ function initGameForRoom(room) {
     if (!v.ok) throw new Error(`Deck inválido para ${p.username}: ${v.errors.join(" | ")}`);
 
     const deckInstances = user.deck.map((dbId) => Shared.instantiateCard(dbId, role)).filter(Boolean);
-    deckInstances.forEach(card => { card.owner = role; });
     Shared.shuffleInPlace(deckInstances);
 
     const ps = room.state[role];
@@ -1205,14 +434,13 @@ io.on("connection", (socket) => {
     if (!v.ok) return socket.emit("rooms:error", { error: "Deck inválido. Monte um deck (20-50) para jogar.", errors: v.errors });
 
     const id = Math.random().toString(36).slice(2, 8).toUpperCase();
-    rooms.set(id, { id, players: [], match: null, state: null });
+    rooms.set(id, { id, players: [], match: null, state: null, createdAt: Date.now() });
     io.emit("rooms:list", roomsPublicList());
   });
 
   socket.on("rooms:join", ({ roomId, token }) => {
     const room = getRoom(roomId);
     if (!room) return socket.emit("rooms:error", { error: "Sala não existe." });
-    if (room.players.length >= 2) return socket.emit("rooms:error", { error: "Sala cheia." });
 
     const username = usersByToken.get(String(token || ""));
     if (!username) return socket.emit("rooms:error", { error: "Você precisa estar logado." });
@@ -1221,14 +449,34 @@ io.on("connection", (socket) => {
     const v = Shared.validateDeck(user?.deck || []);
     if (!v.ok) return socket.emit("rooms:error", { error: "Deck inválido. Monte um deck (20-50) para jogar.", errors: v.errors });
 
-    // evita mesmo usuário entrar 2x
-    if (room.players.some(p => p.username === username)) {
-      return socket.emit("rooms:error", { error: "Esse usuário já está na sala." });
+    // Reconnect / rejoin: permite o MESMO usuário voltar após F5/refresh
+    const existing = room.players.find(p => p.username === username);
+    if (existing) {
+      if (existing.connected && existing.socketId) {
+        return socket.emit("rooms:error", { error: "Esse usuário já está na sala." });
+      }
+
+      socket.join(roomId);
+      existing.socketId = socket.id;
+      existing.connected = true;
+      existing.lastSeen = Date.now();
+
+      // Se a partida já começou, devolve o jogador direto pro jogo e sincroniza o estado
+      if (room.match && room.state) {
+        io.to(socket.id).emit("match:start", { roomId: room.id, role: existing.role, username: existing.username });
+        sendSync(room);
+      }
+
+      io.emit("rooms:list", roomsPublicList());
+      return;
     }
+
+    // Novo jogador
+    if (room.players.length >= 2) return socket.emit("rooms:error", { error: "Sala cheia." });
 
     socket.join(roomId);
     const role = room.players.length === 0 ? "p1" : "p2";
-    room.players.push({ socketId: socket.id, role, username });
+    room.players.push({ socketId: socket.id, role, username, connected: true, lastSeen: Date.now() });
 
     // start match
     if (room.players.length === 2) {
@@ -1254,10 +502,10 @@ io.on("connection", (socket) => {
     io.emit("rooms:list", roomsPublicList());
   });
 
+
   socket.on("game:intent", ({ roomId, token, intent }) => {
     const room = getRoom(roomId);
     if (!room || !roomHasTwo(room) || !room.state || !room.match) return;
-    if (room.match.winner) return;
 
     const username = usersByToken.get(String(token || ""));
     if (!username) return;
@@ -1272,13 +520,13 @@ io.on("connection", (socket) => {
       if (room.match.activeRole !== role) return;
 
       gainPAOnBoard(room, role, END_TURN_PA_GAIN);
+      removeExpiredBuffsForRoleEnd(room, role);
 
       const next = role === "p1" ? "p2" : "p1";
       if (role === "p2") {
         room.match.round += 1;
         resetPIForBoth(room);
       }
-      room.match.turnCounter += 1;
       startTurn(room, next);
 
       sendSync(room);
@@ -1319,13 +567,13 @@ io.on("connection", (socket) => {
       ps.hand.splice(handIndex, 1);
       ps.handCount = ps.hand.length;
 
-      card.owner = role;
       ps[line][index] = card;
 
       emitEvent(room, { type: "summon", role, to: { line, index } });
       sendSync(room);
       return;
     }
+
 
     if (intent.type === "useHab") {
       if (room.match.activeRole !== role) return;
@@ -1336,53 +584,15 @@ io.on("connection", (socket) => {
 
       // target is optional, but if present validate structure
       let t = null;
-      if (target) {
+      if (target && target.pos && isValidLine(target.pos.line) && isValidIndex(target.pos.index)) {
         const tr = target.role === "p1" || target.role === "p2" ? target.role : null;
-        if (target.pos && isValidLine(target.pos.line) && isValidIndex(target.pos.index) && tr) {
-          t = { role: tr, pos: { line: target.pos.line, index: target.pos.index } };
-        } else if (Number.isInteger(target.graveyardIndex) && tr) {
-          t = { role: tr, graveyardIndex: target.graveyardIndex };
-        } else if (target.instanceId && tr) {
-          t = { role: tr, instanceId: target.instanceId };
-        }
+        if (tr) t = { role: tr, pos: { line: target.pos.line, index: target.pos.index } };
       }
 
       const res = applyHab(room, role, { line: from.line, index: from.index }, t);
       if (!res.ok) return;
 
       emitEvent(room, { type: "hab", ...res });
-      emitGameOver(room);
-      sendSync(room);
-      return;
-    }
-
-    if (intent.type === "useUlt") {
-      if (room.match.activeRole !== role) return;
-
-      const { from, target } = intent;
-      if (!from) return;
-      if (!isValidLine(from.line) || !isValidIndex(from.index)) return;
-
-      let t = null;
-      if (target) {
-        const tr = target.role === "p1" || target.role === "p2" ? target.role : null;
-        if (target.pos && isValidLine(target.pos.line) && isValidIndex(target.pos.index) && tr) {
-          t = { role: tr, pos: { line: target.pos.line, index: target.pos.index } };
-        } else if (Number.isInteger(target.graveyardIndex) && tr) {
-          t = { role: tr, graveyardIndex: target.graveyardIndex };
-        } else if (target.instanceId && tr) {
-          t = { role: tr, instanceId: target.instanceId };
-        } else if (target.suit) {
-          t = { suit: target.suit };
-        }
-      }
-
-      const res = applyUlt(room, role, { line: from.line, index: from.index }, t);
-      if (!res.ok) return;
-
-      emitEvent(room, { type: "ult", ...res });
-      if (res.deaths && res.deaths.length) emitEvent(room, { type: "death", deaths: res.deaths });
-      emitGameOver(room);
       sendSync(room);
       return;
     }
@@ -1402,7 +612,6 @@ io.on("connection", (socket) => {
       const attacker = me[from.line][from.index];
       const target = opp[to.line][to.index];
       if (!attacker || !target) return;
-      attacker.owner = role;
 
       const pa = Number.isInteger(attacker.pa) ? attacker.pa : 0;
       if (pa < ATTACK_PA_COST) return;
@@ -1413,84 +622,41 @@ io.on("connection", (socket) => {
 
       attacker.pa = pa - ATTACK_PA_COST;
 
-      const atk = getEffectiveAtk(room, attacker);
-      const def = getEffectiveDef(room, target);
+      const atk = Number.isInteger(attacker.atk) ? attacker.atk : 0;
+      const def = Number.isInteger(target.def) ? target.def : 0;
       const raw = atk - def;
 
       let dmgToTarget = 0;
       let dmgToAttacker = 0;
       let playerDmgToEnemy = 0;
       let playerDmgToMe = 0;
-      let deaths = [];
 
       if (raw > 0) {
-        const res = applyDamageToCard(room, attacker, enemy, { line: to.line, index: to.index }, raw);
-        dmgToTarget = res.dmg;
-        deaths = deaths.concat(res.deaths || []);
-        if (dmgToTarget > 0) playerDmgToEnemy = applyPlayerDamageFromCardHit(room, enemy, dmgToTarget);
+        dmgToTarget = raw;
+        target.hp = (Number.isInteger(target.hp) ? target.hp : 0) - dmgToTarget;
+        playerDmgToEnemy = applyPlayerDamageFromCardHit(room, enemy, dmgToTarget);
       } else if (raw < 0) {
-        const reflect = Math.abs(raw);
-        const res = applyDamageToCard(room, target, role, { line: from.line, index: from.index }, reflect, { skipRedirect: true });
-        dmgToAttacker = res.dmg;
-        deaths = deaths.concat(res.deaths || []);
-        if (dmgToAttacker > 0) playerDmgToMe = applyPlayerDamageFromCardHit(room, role, dmgToAttacker);
+        dmgToAttacker = Math.abs(raw);
+        attacker.hp = (Number.isInteger(attacker.hp) ? attacker.hp : 0) - dmgToAttacker;
+        playerDmgToMe = applyPlayerDamageFromCardHit(room, role, dmgToAttacker);
       }
 
-      if (attacker && (attacker.hp ?? 0) <= 0 && !deaths.find(d => d.card.instanceId === attacker.instanceId)) {
-        deaths.push({ role, from: { line: from.line, index: from.index }, card: { ...attacker, hp: 0 } });
-        me.graveyard.push({ ...attacker, hp: 0 });
-        me[from.line][from.index] = null;
-      }
+      const deaths = [];
 
-      if (target && (target.hp ?? 0) <= 0 && !deaths.find(d => d.card.instanceId === target.instanceId)) {
+      if ((Number.isInteger(target.hp) ? target.hp : 0) <= 0) {
         deaths.push({ role: enemy, from: { line: to.line, index: to.index }, card: { ...target, hp: 0 } });
         opp.graveyard.push({ ...target, hp: 0 });
         opp[to.line][to.index] = null;
       }
 
-      if (dmgToTarget > 0) {
-        handlePaSteal(room, attacker, target);
-      }
-
-      if (attacker.dbId === "L-10" && getActiveEffects(room, attacker, "l10_skill_active").length > 0) {
-        addStatusEffect(attacker, { id:`l10_skill_shield_${attacker.instanceId}_${Date.now()}`, sourceDbId: attacker.dbId, type:"shield", value:20, turnsLeft:3, filters:{}, meta:{} });
-      }
-
-      if (attacker.dbId === "L-12" && dmgToTarget > 0 && getActiveEffects(room, target, "infection").length > 0) {
-        const infected = ["front","back"].flatMap(line => opp[line].filter(card => card && getActiveEffects(room, card, "infection").length > 0));
-        const spreadDamage = Math.floor(dmgToTarget * 0.5);
-        for (const card of infected) {
-          const pos = findCardPosition(room, enemy, card.instanceId);
-          if (pos) {
-            const res = applyDamageToCard(room, attacker, enemy, pos, spreadDamage, { isSplash: true, skipReflect: true });
-            deaths = deaths.concat(res.deaths || []);
-          }
-        }
-      }
-
-      if (attacker.dbId === "L-9" && getActiveEffects(room, attacker, "l9_spill").length > 0 && dmgToTarget > 0 && to.line === "front") {
-        const spillDamage = Math.floor(dmgToTarget * 0.3);
-        for (let i=0;i<5;i++){
-          const enemyCard = opp.back[i];
-          if (enemyCard) {
-            const res = applyDamageToCard(room, attacker, enemy, { line:"back", index: i }, spillDamage, { isSplash: true, skipReflect: true });
-            deaths = deaths.concat(res.deaths || []);
-          }
-        }
-      }
-
-      if (target && dmgToTarget > 0) {
-        const l5Marks = getActiveEffects(room, target, "l5_mark");
-        const hasL5 = l5Marks.some(mark => mark.meta?.sourceOwner === role);
-        if (hasL5) {
-          const heal = Math.floor(dmgToTarget * 0.2);
-          attacker.hp = Math.min(attacker.maxHp ?? attacker.hp, (attacker.hp ?? 0) + heal);
-        }
+      if ((Number.isInteger(attacker.hp) ? attacker.hp : 0) <= 0) {
+        deaths.push({ role, from: { line: from.line, index: from.index }, card: { ...attacker, hp: 0 } });
+        me.graveyard.push({ ...attacker, hp: 0 });
+        me[from.line][from.index] = null;
       }
 
       emitEvent(room, { type: "attack", role, from: { line: from.line, index: from.index }, to: { line: to.line, index: to.index }, dmgToTarget, dmgToAttacker, playerDmgToEnemy, playerDmgToMe });
       if (deaths.length) emitEvent(room, { type: "death", deaths });
-      emitGameOver(room);
 
       sendSync(room);
       return;
@@ -1498,11 +664,13 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
+    // Não remover o player imediatamente: permite reconectar após F5/refresh
     for (const [id, room] of rooms) {
-      const i = room.players.findIndex((p) => p.socketId === socket.id);
-      if (i !== -1) {
-        room.players.splice(i, 1);
-        if (room.players.length === 0) rooms.delete(id);
+      const p = room.players.find((pp) => pp.socketId === socket.id);
+      if (p) {
+        p.connected = false;
+        p.socketId = null;
+        p.lastSeen = Date.now();
         io.emit("rooms:list", roomsPublicList());
         break;
       }
