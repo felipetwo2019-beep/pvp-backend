@@ -1,0 +1,1508 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Card Game PvP</title>
+<style>
+  body { background:#0f0f10; color:#eee; font-family: Arial, sans-serif; margin:0; }
+  header { padding: 14px 16px; border-bottom: 1px solid #242424; display:flex; justify-content:space-between; align-items:center; }
+  header .brand{ font-weight: 900; letter-spacing: .5px; }
+  header .user{ font-size: 13px; opacity: .9; }
+  main { padding: 16px; max-width: 1100px; margin: 0 auto; }
+
+  .screen { display:none; }
+  .screen.active { display:block; }
+
+  .cardbox{ background:#161618; border:1px solid #2a2a2f; border-radius: 14px; padding: 12px; box-shadow: 0 12px 30px rgba(0,0,0,.25); }
+  .row{ display:flex; gap: 12px; flex-wrap: wrap; }
+  .col{ flex: 1; min-width: 280px; }
+
+  input, button, select { padding: 10px 10px; border-radius: 10px; border:1px solid #2b2b2f; background:#111; color:#eee; }
+  button { cursor:pointer; }
+  button.primary { background:#2b74ff; border-color:#2b74ff; }
+  button.ghost { background:#161618; }
+  button:disabled { opacity: .55; cursor:not-allowed; }
+
+  .hint{ font-size: 12px; opacity: .75; margin-top: 6px; line-height: 1.4; }
+
+  .msg{ margin-top: 10px; font-size: 13px; }
+  .msg.error{ color:#ff6b6b; }
+  .msg.ok{ color:#80ffb4; }
+
+  .pillbar{ display:flex; gap: 8px; flex-wrap:wrap; margin: 10px 0; }
+  .pill{ background:#1b1b1f; border:1px solid #2c2c33; border-radius: 999px; padding: 6px 10px; font-size: 12px; opacity:.95; }
+
+  /* Deck builder list */
+  .db-top{ display:flex; gap: 10px; flex-wrap: wrap; align-items:center; justify-content:space-between; }
+  .db-top .filters{ display:flex; gap: 10px; flex-wrap:wrap; align-items:center; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; margin-top: 10px; }
+  .card-tile{ background:#121214; border:1px solid #2a2a2f; border-radius: 14px; padding: 10px; display:flex; gap: 10px; align-items:flex-start; }
+  .thumb{ width: 52px; height: 52px; border-radius: 12px; background:#222; overflow:hidden; flex: 0 0 auto; border:1px solid rgba(255,255,255,0.06); }
+  .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .ctxt{ flex:1; min-width: 0; }
+  .name{ font-weight: 900; font-size: 13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .meta{ font-size: 12px; opacity:.82; margin-top: 2px; }
+  .stats{ display:flex; gap: 8px; font-size: 12px; margin-top: 6px; opacity:.9; }
+  .smallbtns{ display:flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .smallbtn{ padding: 7px 9px; font-size: 12px; border-radius: 10px; }
+
+  /* Lobby & Game from previous build (compact) */
+  .board { display:grid; grid-template-columns: 70px repeat(5, 80px); grid-template-rows: repeat(2, 120px); gap: 6px; justify-content:center; }
+  .slot { width: 80px; height:120px; border:2px dashed #555; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; position:relative; }
+  .slot.targetable{ border-color: rgba(255, 214, 0, 0.85); box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.15); }
+  .side-slot { width:70px; height:120px; border:2px solid #888; background:#222; font-size:12px; display:flex; align-items:center; justify-content:center; user-select:none; cursor: default; white-space: pre-line; position:relative; }
+  .side-slot.clickable{ cursor:pointer; outline: 2px solid rgba(77,166,255,0.25); }
+  .side-slot .count-badge{ position:absolute; bottom: 6px; right: 6px; background: rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.16); border-radius: 999px; padding: 2px 6px; font-size: 11px; }
+  .card { width:70px; height:100px; background:#4da6ff; border-radius:10px; display:flex; flex-direction: column; justify-content: space-between; color:#052033; font-weight:bold; font-size:11px; padding: 6px; box-sizing: border-box; }
+  .card .top{ display:flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .card .name{ font-size: 11px; font-weight: 800; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card .type{ font-size: 14px; }
+  .card .tribe{ font-size: 10px; opacity: 0.85; text-align:left; }
+  .card .stats{ display:flex; justify-content: space-between; font-size: 11px; background: rgba(255,255,255,0.28); border-radius: 8px; padding: 3px 6px; }
+  .card .pa{ position:absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.55); color:#fff; border-radius: 999px; font-size: 11px; padding: 2px 6px; font-weight: 700; }
+
+  .hand-wrap { margin: 12px auto 0; max-width: 900px; }
+  .hand { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
+  .hand-card { width:92px; height:122px; border:2px solid #666; border-radius:12px; background:#222; cursor:pointer; user-select:none; display:flex; flex-direction: column; justify-content: space-between; padding:6px; box-sizing:border-box; position:relative; }
+  .hand-card .hc-stars{ position:absolute; top: 4px; right: 4px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; font-size: 11px; padding: 2px 6px; }
+  .enemy-area { position: relative; display: inline-block; }
+  .enemy-hand-wrap { position: absolute; top: -8px; right: -8px; display: flex; gap: 6px; align-items: center; justify-content: flex-end; pointer-events: none; }
+  .enemy-hand-card { width: 45px; height: 60px; border: 2px solid #555; border-radius: 8px; background: linear-gradient(135deg, #2a2a2a, #1a1a1a); }
+  .enemy-hand-count { font-size: 12px; opacity: 0.8; margin-left: 6px; }
+
+  .modal-backdrop{ position: fixed; inset: 0; background: rgba(0,0,0,0.65); display:none; align-items: center; justify-content: center; z-index: 50; }
+  .modal-backdrop.open{ display:flex; }
+  .modal{ width: 420px; max-width: 94vw; background:#1b1b1b; border:1px solid #333; border-radius: 16px; padding: 14px; box-shadow: 0 20px 50px rgba(0,0,0,0.55); }
+  .zoom-card{ height: 260px; border-radius: 14px; background: #4da6ff; color:#052033; padding: 12px; box-sizing: border-box; display:flex; flex-direction: column; justify-content: space-between; position: relative; }
+  .zoom-card .z-name{ font-size: 18px; font-weight: 900; text-align:left; }
+  .zoom-card .z-tribe{ font-size: 13px; opacity: 0.9; text-align:left; }
+  .zoom-card .z-meta{ display:flex; justify-content: space-between; align-items:center; margin-top: 8px; gap: 10px; }
+  .zoom-card .z-type{ font-size: 18px; }
+  .zoom-card .z-stars{ background: rgba(0,0,0,0.18); border-radius: 999px; padding: 4px 8px; font-size: 13px; font-weight: 800; }
+  .zoom-card .z-pa{ position:absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.55); color:#fff; border-radius: 999px; padding: 4px 8px; font-size: 13px; font-weight: 900; }
+  .zoom-card .z-stats{ display:flex; gap: 10px; background: rgba(255,255,255,0.28); border-radius: 12px; padding: 8px 10px; justify-content: space-between; font-size: 14px; font-weight: 800; margin-top: 10px; }
+  .zoom-card .z-ability{ background: rgba(255,255,255,0.18); border-radius: 12px; padding: 8px 10px; margin-top: 10px; font-size: 12px; line-height: 1.35; }
+  .modal-actions{ display:flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
+  .btn{ border:none; border-radius: 10px; padding: 10px 12px; cursor:pointer; background:#2a2a2a; color:#eee; border:1px solid #3a3a3a; font-weight: 700; }
+  .btn.primary{ background:#2b74ff; border-color:#2b74ff; color:#fff; }
+  .btn.disabled{ opacity: 0.5; pointer-events: none; }
+
+  .grave-list{ margin-top: 10px; max-height: 280px; overflow:auto; border: 1px solid #333; border-radius: 12px; padding: 10px; background:#151515; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .grave-item{ background:#202020; border:1px solid #2f2f2f; border-radius: 12px; padding: 8px; cursor:pointer; user-select:none; }
+
+
+  /* === FX Layer === */
+  #fxLayer{position:fixed;inset:0;pointer-events:none;z-index:9999;}
+  .fx-sword{position:fixed;font-size:28px;filter:drop-shadow(0 0 10px rgba(0,255,255,.55));transform:translate(-50%,-50%);will-change:transform;}
+  .fx-dmg{position:fixed;font-weight:900;font-size:35px;letter-spacing:.6px;transform:translate(-50%,-50%);color:#f7d34a;text-shadow:0 2px 0 rgba(0,0,0,.55),0 0 18px rgba(255,210,80,.75),-2px -2px 0 rgba(255,255,255,.95),2px -2px 0 rgba(255,255,255,.95),-2px 2px 0 rgba(255,255,255,.95),2px 2px 0 rgba(255,255,255,.95);will-change:transform,opacity;}
+  .fx-dmg.ref{color:#ffb03a;text-shadow:0 2px 0 rgba(0,0,0,.55),0 0 16px rgba(255,170,0,.70),-2px -2px 0 rgba(255,255,255,.95),2px -2px 0 rgba(255,255,255,.95),-2px 2px 0 rgba(255,255,255,.95),2px 2px 0 rgba(255,255,255,.95);}
+  .fx-burn{position:fixed;width:46px;height:46px;border-radius:50%;transform:translate(-50%,-50%);background:radial-gradient(circle at 35% 35%, rgba(255,240,120,.95), rgba(255,90,0,.55) 55%, rgba(120,0,0,0) 70%);filter:blur(.2px) drop-shadow(0 0 18px rgba(255,120,0,.45));mix-blend-mode:screen;opacity:.95;will-change:transform,opacity;}
+  .fx-trail{position:fixed;width:10px;height:10px;border-radius:50%;transform:translate(-50%,-50%);background:rgba(255,120,0,.75);filter:blur(.2px) drop-shadow(0 0 10px rgba(255,140,0,.55));opacity:.9;will-change:transform,opacity;}
+  .fx-ember{position:fixed;width:6px;height:6px;border-radius:50%;transform:translate(-50%,-50%);background:rgba(255,190,80,.92);filter:drop-shadow(0 0 10px rgba(255,140,0,.65));opacity:.95;will-change:transform,opacity;}
+  .fx-deathcard{position:fixed;transform:translate(-50%,-50%);pointer-events:none;will-change:transform,opacity;}
+  .fx-shake{animation:fxShake .18s ease-in-out 0s 2;}
+  @keyframes fxShake{0%{transform:translateX(0)}25%{transform:translateX(-3px)}50%{transform:translateX(3px)}75%{transform:translateX(-2px)}100%{transform:translateX(0)}}
+
+
+  /* HP pill shake */
+  .hpShake{ animation: hpShake .28s ease-in-out 1; }
+  @keyframes hpShake{
+    0%{ transform: translateX(0); }
+    20%{ transform: translateX(-2px); }
+    40%{ transform: translateX(3px); }
+    60%{ transform: translateX(-3px); }
+    80%{ transform: translateX(2px); }
+    100%{ transform: translateX(0); }
+  }
+
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Card Game PvP</div>
+  <div class="user" id="hdrUser">offline</div>
+</header>
+
+<main>
+  <!-- AUTH -->
+  <section id="scrAuth" class="screen active">
+    <div class="cardbox">
+      <h2>Conta (fake)</h2>
+      <div class="row">
+        <div class="col">
+          <h3>Registrar</h3>
+          <input id="regUser" placeholder="username (3+)" /><br/>
+          <input id="regPass" placeholder="senha (3+)" type="password" /><br/>
+          <button class="primary" id="btnRegister">Criar conta</button>
+          <div class="hint">Essa conta fica só na memória do servidor (some se reiniciar).</div>
+          <div id="regMsg" class="msg"></div>
+        </div>
+        <div class="col">
+          <h3>Login</h3>
+          <input id="logUser" placeholder="username" /><br/>
+          <input id="logPass" placeholder="senha" type="password" /><br/>
+          <button class="primary" id="btnLogin">Entrar</button>
+          <div id="logMsg" class="msg"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DECK BUILDER -->
+  <section id="scrDeck" class="screen">
+    <div class="cardbox">
+      <div class="db-top">
+        <div>
+          <h2 style="margin:0">Deck Builder</h2>
+          <div class="hint">Monte 20–50 cartas. Lendárias≤3, Épicas≤5, Raras≤10. Duplicatas: L/E=1, R=2, C/U=3.</div>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <button id="btnSaveDeck" class="primary">Salvar deck</button>
+          <button id="btnGoLobby" class="primary" disabled>Ir pro Lobby</button>
+          <button id="btnLogout" class="ghost">Sair</button>
+        </div>
+      </div>
+
+      <div class="pillbar" id="deckPills"></div>
+      <div id="deckErrors" class="msg error"></div>
+
+      <div class="row">
+        <div class="col cardbox" style="background:#121214; border-color:#2a2a2f;">
+          <h3 style="margin-top:0">Cartas (clique para adicionar)</h3>
+          <div class="filters">
+            <input id="fSearch" placeholder="buscar por nome/tribo/id..." style="min-width:240px;">
+            <select id="fRarity">
+              <option value="">raridade (todas)</option>
+              <option value="LEGENDARY">LEGENDARY</option>
+              <option value="EPIC">EPIC</option>
+              <option value="RARE">RARE</option>
+              <option value="COMMON">COMMON</option>
+              <option value="UTILITY">UTILITY</option>
+            </select>
+            <select id="fType">
+              <option value="">tipo (todos)</option>
+              <option value="Melee">Melee</option>
+              <option value="Tank">Tank</option>
+              <option value="Ranged">Ranged</option>
+              <option value="Support">Support</option>
+              <option value="Utility">Utility</option>
+            </select>
+          </div>
+          <div id="cardsGrid" class="grid"></div>
+        </div>
+
+        <div class="col cardbox" style="background:#121214; border-color:#2a2a2f;">
+          <h3 style="margin-top:0">Seu deck</h3>
+          <div class="hint">Clique em “-” para remover. O servidor valida de novo ao entrar no lobby.</div>
+          <div id="deckGrid" class="grid"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LOBBY -->
+  <section id="scrLobby" class="screen">
+    <div class="cardbox">
+      <h2>Lobby</h2>
+      <div class="row">
+        <div class="col">
+          <button class="primary" id="btnCreateRoom">Criar sala</button>
+          <div id="lobbyMsg" class="msg"></div>
+          <div class="hint">Entre numa sala existente abaixo.</div>
+        </div>
+        <div class="col">
+          <input id="roomInput" placeholder="ID da sala" />
+          <button class="primary" id="btnJoinRoom">Entrar</button>
+        </div>
+      </div>
+      <div class="hint" id="roomsList">(carregando salas...)</div>
+      <button id="btnBackDeck" class="ghost" style="margin-top:10px;">Voltar pro Deck Builder</button>
+    </div>
+  </section>
+
+  <!-- GAME -->
+  <section id="scrGame" class="screen">
+    <div class="pillbar">
+      <div class="pill" id="infoRound">Turno: -</div>
+      <div class="pill" id="infoActive">Vez: -</div>
+      <div class="pill" id="infoPI">PI: -</div>
+      <div class="pill" id="infoMyHP">Você: HP - / DEF -</div>
+      <div class="pill" id="infoEnemyHP">Oponente: HP - / DEF -</div>
+      <div class="pill" id="infoRoom">Sala: -</div>
+      <div class="pill" id="infoRole">Role: -</div>
+    </div>
+
+    <div class="cardbox">
+      <div style="text-align:center;">
+        <h3 style="margin:0 0 10px;">Campo do Oponente</h3>
+        <div class="enemy-area">
+          <div id="enemyHand" class="enemy-hand-wrap"></div>
+          <div class="board" id="enemyBoard"></div>
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid #25252a; margin: 14px 0;">
+
+      <div style="text-align:center;">
+        <h3 style="margin:0 0 10px;">Seu Campo</h3>
+        <div class="board" id="myBoard"></div>
+        <div class="hand-wrap">
+          <div style="margin: 8px 0; opacity:.9;">Sua Mão</div>
+          <div id="myHand" class="hand"></div>
+          <div class="hint">
+            Clique em carta da mão para invocar. Clique na carta do campo para atacar.<br>
+            Clique no <b>[CEMIT]</b> para ver o cemitério. ESC cancela/fecha.
+          </div>
+        </div>
+
+        <div style="margin-top: 10px;">
+          <button class="primary" id="btnEndTurn">Passar Vez</button>
+          <button class="ghost" id="btnExitToLobby">Sair pro Lobby</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="fxLayer" aria-hidden="true"></div>
+
+  <!-- MODAL -->
+  <div id="modalBackdrop" class="modal-backdrop">
+    <div class="modal">
+      <div id="zoomCard" class="zoom-card"></div>
+      <div id="modalActions" class="modal-actions"></div>
+      <div id="graveList" class="grave-list" style="display:none;"></div>
+    </div>
+  </div>
+
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/shared_cards.js"></script>
+<script>
+/**
+ * =============================
+ *  Helpers / Global State
+ * =============================
+ */
+const socket = io();
+
+let TOKEN = localStorage.getItem("token") || "";
+let USERNAME = localStorage.getItem("username") || "";
+
+let CARDS = []; // from /api/cards
+let MY_DECK = []; // array of dbIds
+let ROOM_ID = null;
+let ROLE = null;
+
+let ACTIVE = null;
+let ROUND = 1;
+let gameState = null;
+
+let modalCard = null;
+let mode = null;
+let graveView = null;
+
+const Shared = window.SharedCards;
+
+// Screens
+const scrAuth = document.getElementById("scrAuth");
+const scrDeck = document.getElementById("scrDeck");
+const scrLobby = document.getElementById("scrLobby");
+const scrGame = document.getElementById("scrGame");
+
+function showScreen(el){
+  [scrAuth, scrDeck, scrLobby, scrGame].forEach(s => s.classList.remove("active"));
+  el.classList.add("active");
+}
+
+// Header user
+const hdrUser = document.getElementById("hdrUser");
+function setHeader(){
+  hdrUser.textContent = USERNAME ? `logado: ${USERNAME}` : "offline";
+}
+setHeader();
+
+function otherRole(role){ return role === "p1" ? "p2" : "p1"; }
+function typeIcon(type){
+  if(type === "Melee") return "⚔️";
+  if(type === "Tank") return "🛡️";
+  if(type === "Ranged") return "🏹";
+  if(type === "Support") return "✨";
+  if(type === "Utility") return "🧪";
+  return "❓";
+}
+
+function abilityKindForCard(card){
+  const t = String(card?.type||"").toUpperCase();
+  if (t === "SUPPORT") return "HEAL_ALLY";
+  if (t === "UTILITY") return "GAIN_PA_SELF";
+  return "BUFF_ATK_SELF";
+}
+
+function ultimateKindForCard(card){
+  // Prefer explicit metadata if present
+  const k = String(card?.ultKind || "").toUpperCase();
+  if (k) return k;
+  const t = String(card?.type||"").toUpperCase();
+  if (t === "SUPPORT") return "HEAL_ALLY_ULT";
+  if (t === "UTILITY") return "GAIN_PI_ULT";
+  return "BIG_HIT";
+}
+
+
+function starsText(n){
+  const s = Number.isInteger(n) ? n : 1;
+  return "★".repeat(Math.max(0, s));
+}
+function api(path, method="GET", body=null){
+  const headers = { "Content-Type": "application/json" };
+  if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
+  return fetch(path, { method, headers, body: body ? JSON.stringify(body) : null }).then(r => r.json());
+}
+
+/**
+ * =============================
+ *  Auth
+ * =============================
+ */
+const regUser = document.getElementById("regUser");
+const regPass = document.getElementById("regPass");
+const logUser = document.getElementById("logUser");
+const logPass = document.getElementById("logPass");
+const regMsg = document.getElementById("regMsg");
+const logMsg = document.getElementById("logMsg");
+
+document.getElementById("btnRegister").onclick = async () => {
+  regMsg.textContent = "";
+  const username = regUser.value.trim();
+  const password = regPass.value;
+  const res = await api("/api/register","POST",{ username, password });
+  if (!res.ok){
+    regMsg.className = "msg error";
+    regMsg.textContent = res.error || "Falha";
+    return;
+  }
+  TOKEN = res.token;
+  USERNAME = res.username;
+  localStorage.setItem("token", TOKEN);
+  localStorage.setItem("username", USERNAME);
+  setHeader();
+  await bootAfterAuth();
+};
+
+document.getElementById("btnLogin").onclick = async () => {
+  logMsg.textContent = "";
+  const username = logUser.value.trim();
+  const password = logPass.value;
+  const res = await api("/api/login","POST",{ username, password });
+  if (!res.ok){
+    logMsg.className = "msg error";
+    logMsg.textContent = res.error || "Falha";
+    return;
+  }
+  TOKEN = res.token;
+  USERNAME = res.username;
+  localStorage.setItem("token", TOKEN);
+  localStorage.setItem("username", USERNAME);
+  setHeader();
+  await bootAfterAuth();
+};
+
+document.getElementById("btnLogout").onclick = () => {
+  TOKEN = "";
+  USERNAME = "";
+  localStorage.removeItem("token");
+  localStorage.removeItem("username");
+  MY_DECK = [];
+  setHeader();
+  showScreen(scrAuth);
+};
+
+async function bootAfterAuth(){
+  // load cards
+  const cr = await api("/api/cards");
+  CARDS = cr.ok ? cr.cards : [];
+  // load deck
+  const dr = await api("/api/deck");
+  MY_DECK = dr.ok ? dr.deck : [];
+  renderDeckBuilder();
+  showScreen(scrDeck);
+}
+
+/**
+ * Auto-login attempt
+ */
+(async function init(){
+  if (TOKEN){
+    const me = await api("/api/me");
+    if (me && me.ok){
+      USERNAME = me.username;
+      localStorage.setItem("username", USERNAME);
+      setHeader();
+      const cr = await api("/api/cards");
+      CARDS = cr.ok ? cr.cards : [];
+      const dr = await api("/api/deck");
+      MY_DECK = dr.ok ? dr.deck : [];
+      renderDeckBuilder();
+      showScreen(scrDeck);
+      return;
+    } else {
+      TOKEN = "";
+      USERNAME = "";
+      localStorage.removeItem("token");
+      localStorage.removeItem("username");
+    }
+  }
+  showScreen(scrAuth);
+})();
+
+/**
+ * =============================
+ *  Deck Builder
+ * =============================
+ */
+const cardsGrid = document.getElementById("cardsGrid");
+const deckGrid = document.getElementById("deckGrid");
+const deckPills = document.getElementById("deckPills");
+const deckErrors = document.getElementById("deckErrors");
+const btnSaveDeck = document.getElementById("btnSaveDeck");
+const btnGoLobby = document.getElementById("btnGoLobby");
+const btnBackDeck = document.getElementById("btnBackDeck");
+const fSearch = document.getElementById("fSearch");
+const fRarity = document.getElementById("fRarity");
+const fType = document.getElementById("fType");
+
+function deckCounts(deck){
+  const counts = {};
+  for (const id of deck) counts[id] = (counts[id]||0)+1;
+  return counts;
+}
+
+function renderDeckPills(v){
+  deckPills.innerHTML = "";
+  const size = MY_DECK.length;
+  const rc = v?.rarityCounts || {};
+  const mk = (t) => { const d=document.createElement("div"); d.className="pill"; d.textContent=t; return d; };
+  deckPills.appendChild(mk(`Cartas: ${size}/${Shared.DeckRules.MAX} (mín ${Shared.DeckRules.MIN})`));
+  deckPills.appendChild(mk(`LEG: ${rc.LEGENDARY||0}/${Shared.DeckRules.rarityCaps.LEGENDARY}`));
+  deckPills.appendChild(mk(`EPIC: ${rc.EPIC||0}/${Shared.DeckRules.rarityCaps.EPIC}`));
+  deckPills.appendChild(mk(`RARE: ${rc.RARE||0}/${Shared.DeckRules.rarityCaps.RARE}`));
+  deckPills.appendChild(mk(`COMMON: ${rc.COMMON||0}`));
+  deckPills.appendChild(mk(`UTILITY: ${rc.UTILITY||0}`));
+}
+
+function validateLocalDeck(){
+  const v = Shared.validateDeck(MY_DECK);
+  renderDeckPills(v);
+  if (!v.ok){
+    deckErrors.textContent = v.errors.join(" | ");
+    btnGoLobby.disabled = true;
+  } else {
+    deckErrors.textContent = "";
+    btnGoLobby.disabled = false;
+  }
+  return v;
+}
+
+function tileForCard(c, extraBtns){
+  const el = document.createElement("div");
+  el.className = "card-tile";
+  const img = c.img ? `<img src="${c.img}" alt="">` : "";
+  el.innerHTML = `
+    <div class="thumb">${img}</div>
+    <div class="ctxt">
+      <div class="name">${c.dbId} • ${c.name}</div>
+      <div class="meta">${typeIcon(c.type)} ${c.type} • ${c.tribe} • ${c.rarity}</div>
+      <div class="stats"><div>A ${c.atk}</div><div>D ${c.def}</div><div>HP ${c.maxHp}</div><div>PI ${c.piCost}</div></div>
+      <div class="smallbtns"></div>
+    </div>
+  `;
+  const btns = el.querySelector(".smallbtns");
+  extraBtns(btns);
+  return el;
+}
+
+function renderDeckBuilder(){
+  // left: all cards (filter)
+  const q = fSearch.value.trim().toLowerCase();
+  const r = fRarity.value;
+  const t = fType.value;
+
+  const list = CARDS.filter(c => {
+    if (r && c.rarity !== r) return false;
+    if (t && c.type !== t) return false;
+    if (q){
+      const hay = `${c.dbId} ${c.name} ${c.tribe} ${c.type} ${c.rarity}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a,b)=> a.rarity.localeCompare(b.rarity) || a.dbId.localeCompare(b.dbId));
+
+  const counts = deckCounts(MY_DECK);
+
+  cardsGrid.innerHTML = "";
+  list.forEach(c => {
+    const el = tileForCard(c, (btns)=>{
+      const add = document.createElement("button");
+      add.className = "smallbtn primary";
+      add.textContent = "+ adicionar";
+      add.onclick = () => {
+        MY_DECK.push(c.dbId);
+        renderDeckBuilder();
+      };
+      const view = document.createElement("button");
+      view.className = "smallbtn";
+      view.textContent = "ver";
+      view.onclick = () => openModal({ zone:"model", card: c });
+
+      const cnt = document.createElement("div");
+      cnt.style.fontSize = "12px";
+      cnt.style.opacity = ".8";
+      cnt.style.marginLeft = "auto";
+      cnt.textContent = `no deck: ${counts[c.dbId] || 0}`;
+
+      btns.appendChild(add);
+      btns.appendChild(view);
+      btns.appendChild(cnt);
+    });
+    cardsGrid.appendChild(el);
+  });
+
+  // right: deck list grouped by id
+  deckGrid.innerHTML = "";
+  const unique = Object.keys(counts).sort();
+  unique.forEach(id => {
+    const model = CARDS.find(x => x.dbId === id);
+    if (!model) return;
+    const qty = counts[id];
+
+    const el = tileForCard(model, (btns)=>{
+      const rm = document.createElement("button");
+      rm.className = "smallbtn";
+      rm.textContent = `- remover`;
+      rm.onclick = () => {
+        // remove one copy
+        const idx = MY_DECK.indexOf(id);
+        if (idx !== -1) MY_DECK.splice(idx, 1);
+        renderDeckBuilder();
+      };
+
+      const qtyEl = document.createElement("div");
+      qtyEl.style.fontSize = "12px";
+      qtyEl.style.opacity = ".9";
+      qtyEl.style.marginLeft = "auto";
+      qtyEl.textContent = `x${qty}`;
+
+      btns.appendChild(rm);
+      btns.appendChild(qtyEl);
+    });
+
+    deckGrid.appendChild(el);
+  });
+
+  validateLocalDeck();
+}
+
+fSearch.oninput = renderDeckBuilder;
+fRarity.onchange = renderDeckBuilder;
+fType.onchange = renderDeckBuilder;
+
+btnSaveDeck.onclick = async () => {
+  const v = validateLocalDeck();
+  if (!v.ok) return;
+  const res = await api("/api/deck","POST",{ deck: MY_DECK });
+  if (!res.ok){
+    deckErrors.textContent = (res.errors || [res.error || "Falha"]).join(" | ");
+    btnGoLobby.disabled = true;
+    return;
+  }
+  deckErrors.className = "msg ok";
+  deckErrors.textContent = `Deck salvo! (${res.deckSize} cartas)`;
+  setTimeout(()=>{ deckErrors.className="msg error"; deckErrors.textContent=""; }, 1200);
+  btnGoLobby.disabled = false;
+};
+
+btnGoLobby.onclick = async () => {
+  const me = await api("/api/me");
+  if (!me.ok || !me.hasDeck){
+    deckErrors.textContent = "Seu deck não está válido/salvo no servidor.";
+    return;
+  }
+  showScreen(scrLobby);
+  socket.emit("rooms:list:refresh");
+};
+
+document.getElementById("btnBackDeck").onclick = () => showScreen(scrDeck);
+
+/**
+ * =============================
+ *  Lobby
+ * =============================
+ */
+const roomsList = document.getElementById("roomsList");
+const lobbyMsg = document.getElementById("lobbyMsg");
+
+document.getElementById("btnCreateRoom").onclick = () => {
+  lobbyMsg.textContent = "";
+  socket.emit("rooms:create", { token: TOKEN });
+};
+
+document.getElementById("btnJoinRoom").onclick = () => {
+  lobbyMsg.textContent = "";
+  const roomId = document.getElementById("roomInput").value.trim();
+  socket.emit("rooms:join", { roomId, token: TOKEN });
+};
+
+document.getElementById("btnBackDeck").onclick = () => showScreen(scrDeck);
+
+socket.on("rooms:list", (list) => {
+  roomsList.textContent = list.length
+    ? "Salas: " + list.map(r => `${r.id} (${r.playersCount}/2)`).join(" | ")
+    : "Nenhuma sala criada ainda.";
+});
+
+socket.on("rooms:error", (p) => {
+  lobbyMsg.className = "msg error";
+  lobbyMsg.textContent = p?.error || "Erro";
+});
+
+/**
+ * =============================
+ *  Game (board/hand)
+ * =============================
+ */
+const enemyBoard = document.getElementById("enemyBoard");
+const myBoard = document.getElementById("myBoard");
+const myHandEl = document.getElementById("myHand");
+const enemyHandEl = document.getElementById("enemyHand");
+
+const infoRound = document.getElementById("infoRound");
+const infoActive = document.getElementById("infoActive");
+const infoPI = document.getElementById("infoPI");
+const infoMyHP = document.getElementById("infoMyHP");
+const infoEnemyHP = document.getElementById("infoEnemyHP");
+const infoRoom = document.getElementById("infoRoom");
+const infoRole = document.getElementById("infoRole");
+
+document.getElementById("btnEndTurn").onclick = () => {
+  socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "endTurn" } });
+};
+
+document.getElementById("btnExitToLobby").onclick = () => {
+  // (room stays; user can refresh page to cleanly disconnect)
+  showScreen(scrLobby);
+};
+
+socket.on("match:start", ({ roomId, role, username }) => {
+  ROOM_ID = roomId;
+  ROLE = role;
+  modalCard = null;
+  mode = null;
+  graveView = null;
+  closeModal(true);
+  showScreen(scrGame);
+});
+
+socket.on("game:sync", ({ roomId, role, activeRole, round, state }) => {
+  ROOM_ID = roomId;
+  ROLE = role;
+  ACTIVE = activeRole;
+  ROUND = round;
+  gameState = state;
+  if (graveView) renderGraveList(graveView.role);
+  renderGame();
+
+
+
+});
+
+socket.on("game:event", (ev) => {
+  if (!ev || !ev.type) return;
+  // IMPORTANT: server emits events BEFORE sync, so DOM still reflects pre-sync state
+  if (ev.type === "attack") {
+    requestAnimationFrame(() => runAttackFX(ev));
+  }
+  if (ev.type === "death") {
+    requestAnimationFrame(() => runDeathFX(ev));
+  }
+  if (ev.type === "hab") {
+    requestAnimationFrame(() => runHabFX(ev));
+  }
+});
+
+// =============================
+// FX (Attack / Damage / Death)
+// =============================
+const fxLayer = document.getElementById("fxLayer");
+
+function getSlotEl(role, line, index){
+  return document.querySelector(`.slot[data-owner="${role}"][data-line="${line}"][data-index="${index}"]`);
+}
+function getSideSlotEl(role, zone){
+  // zone: 'grave' or 'deck'
+  return document.querySelector(`.side-slot[data-owner="${role}"][data-zone="${zone}"]`);
+}
+function rectCenter(el){
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width/2, y: r.top + r.height/2, w: r.width, h: r.height };
+}
+function clamp01(t){ return Math.max(0, Math.min(1, t)); }
+
+function shakePill(el){
+  if(!el) return;
+  el.classList.remove("hpShake");
+  // restart animation
+  void el.offsetWidth;
+  el.classList.add("hpShake");
+  setTimeout(()=>el.classList.remove("hpShake"), 320);
+}
+
+function swordSVG(){ return "⚔️"; }
+
+function spawnEmbers(x,y, count=10){
+  for(let i=0;i<count;i++){
+    const e=document.createElement('div');
+    e.className='fx-ember';
+    const dx=(Math.random()*2-1)*26;
+    const dy=(Math.random()*2-1)*26;
+    e.style.left = x + 'px';
+    e.style.top = y + 'px';
+    fxLayer.appendChild(e);
+    const dur = 380 + Math.random()*260;
+    e.animate([
+      { transform:`translate(-50%,-50%) scale(1)`, opacity:1 },
+      { transform:`translate(${dx-50}px,${dy-50}px) scale(0.2)`, opacity:0 }
+    ],{ duration: dur, easing:'cubic-bezier(.2,.8,.2,1)', fill:'forwards' });
+    setTimeout(()=>e.remove(), dur+60);
+  }
+}
+
+function spawnDamageNumber(x,y, value, { isReflected=false }={}){
+  if (!value || value<=0) return;
+  const d=document.createElement('div');
+  d.className='fx-dmg' + (isReflected ? ' ref' : '');
+  d.textContent = `-${value}`;
+  d.style.left = x + 'px';
+  d.style.top = y + 'px';
+  fxLayer.appendChild(d);
+  const dur=1500;
+  d.animate([
+    { transform:'translate(-50%,-50%) translateY(0px) scale(1.08)', opacity:1 },
+    { transform:'translate(-50%,-50%) translateY(58px) scale(1.0)', opacity:.95 },
+    { transform:'translate(-50%,-50%) translateY(92px) scale(.96)', opacity:0 }
+  ], { duration: dur, easing:'cubic-bezier(.16,.9,.2,1)', fill:'forwards' });
+  setTimeout(()=>d.remove(), dur+50);
+}
+
+function spawnFloatNumber(x,y, text){
+  const d=document.createElement('div');
+  d.className='fx-dmg';
+  d.textContent = text;
+  d.style.left = x + 'px';
+  d.style.top = y + 'px';
+  fxLayer.appendChild(d);
+  const dur=1500;
+  d.animate([
+    { transform:'translate(-50%,-50%) translateY(0px) scale(1.08)', opacity:1 },
+    { transform:'translate(-50%,-50%) translateY(58px) scale(1.0)', opacity:.95 },
+    { transform:'translate(-50%,-50%) translateY(92px) scale(.96)', opacity:0 }
+  ], { duration: dur, easing:'cubic-bezier(.16,.9,.2,1)', fill:'forwards' });
+  setTimeout(()=>d.remove(), dur+50);
+}
+
+function runHabFX(ev){
+  if (!ROLE) return;
+  const from = ev.from;
+  const fromSlot = getSlotEl(ev.role, from.line, from.index);
+  if (!fromSlot) return;
+  const a = rectCenter(fromSlot);
+
+  // small pop on caster
+  spawnEmbers(a.x, a.y, 10);
+
+  if (ev.kind === "HEAL_ALLY" && ev.target && ev.target.pos){
+    const tslot = getSlotEl(ev.target.role, ev.target.pos.line, ev.target.pos.index);
+    if (tslot){
+      const b = rectCenter(tslot);
+      spawnEmbers(b.x, b.y, 10);
+      if (ev.delta && ev.delta>0) spawnFloatNumber(b.x, b.y, `+${ev.delta}`);
+    }
+  } else if (ev.kind === "GAIN_PA_SELF") {
+    if (ev.delta && ev.delta>0) spawnFloatNumber(a.x, a.y, `+PA ${ev.delta}`);
+  } else if (ev.kind === "BUFF_ATK_SELF") {
+    if (ev.delta && ev.delta>0) spawnFloatNumber(a.x, a.y, `+ATK ${ev.delta}`);
+  }
+}
+
+function runUltFX(ev){
+  if (!ROLE) return;
+  const from = ev.from;
+  const fromSlot = getSlotEl(ev.role, from.line, from.index);
+  if (!fromSlot) return;
+  const a = rectCenter(fromSlot);
+
+  // big pop on caster
+  spawnEmbers(a.x, a.y, 18);
+
+  if (ev.kind === "HEAL_ALLY_ULT" && ev.target && ev.target.pos){
+    const tslot = getSlotEl(ev.target.role, ev.target.pos.line, ev.target.pos.index);
+    if (tslot){
+      const b = rectCenter(tslot);
+      spawnEmbers(b.x, b.y, 18);
+      if (ev.delta && ev.delta>0) spawnFloatNumber(b.x, b.y, `+${ev.delta}`);
+    }
+    return;
+  }
+
+  if (ev.target && ev.target.pos){
+    const tslot = getSlotEl(ev.target.role, ev.target.pos.line, ev.target.pos.index);
+    if (tslot){
+      const b = rectCenter(tslot);
+      spawnEmbers(b.x, b.y, 22);
+      if (ev.dmg && ev.dmg>0) spawnDamageNumber(b.x, b.y, ev.dmg, { isReflected:false });
+    }
+  }
+}
+
+
+function runAttackFX(ev){
+  if (!ROLE) return;
+  const attackerRole = ev.role;
+  const defenderRole = otherRole(attackerRole);
+  const from = ev.from;
+  const to = ev.to;
+
+  const fromSlot = getSlotEl(attackerRole, from.line, from.index);
+  const toSlot = getSlotEl(defenderRole, to.line, to.index);
+  if (!fromSlot || !toSlot || !fxLayer) return;
+
+  const a = rectCenter(fromSlot);
+  const b = rectCenter(toSlot);
+
+  // Sword element
+  const sword=document.createElement('div');
+  sword.className='fx-sword';
+  sword.textContent = swordSVG();
+  sword.style.left = a.x + 'px';
+  sword.style.top = a.y + 'px';
+  fxLayer.appendChild(sword);
+
+  const angle = Math.atan2(b.y-a.y, b.x-a.x) * 180/Math.PI;
+  const baseRot = angle+45;
+  sword.style.transform = `translate(-50%,-50%) rotate(${baseRot}deg)`;
+
+  // Animate flight (slight arc)
+  const mx = (a.x+b.x)/2 + (Math.random()*2-1)*20;
+  const my = (a.y+b.y)/2 - 30;
+  const dur = 260;
+
+  const flight = sword.animate([
+    { left: a.x+'px', top: a.y+'px', offset:0 },
+    { left: mx+'px', top: my+'px', offset:.55 },
+    { left: b.x+'px', top: b.y+'px', offset:1 }
+  ], { duration: dur, easing:'cubic-bezier(.16,.9,.2,1)', fill:'forwards' });
+
+  // Trail embers along the way
+  const t0 = performance.now();
+  const trailTick = () => {
+    const t = clamp01((performance.now()-t0)/dur);
+    const x = (1-t)*(1-t)*a.x + 2*(1-t)*t*mx + t*t*b.x;
+    const y = (1-t)*(1-t)*a.y + 2*(1-t)*t*my + t*t*b.y;
+    spawnEmbers(x,y, 2);
+    if (t<1) requestAnimationFrame(trailTick);
+  };
+  requestAnimationFrame(trailTick);
+
+  flight.onfinish = () => {
+    // Hit spin
+    sword.animate([
+      { transform:`translate(-50%,-50%) rotate(${baseRot}deg)` },
+      { transform:`translate(-50%,-50%) rotate(${baseRot+220}deg)` }
+    ],{ duration:220, easing:'cubic-bezier(.16,.9,.2,1)', fill:'forwards' });
+    spawnEmbers(b.x, b.y, 12);
+
+    // Damage numbers: on target, and possibly reflected on attacker
+    // dmgToTarget: damage applied to target card (not player)
+    if (ev.dmgToTarget && ev.dmgToTarget>0) spawnDamageNumber(b.x, b.y, ev.dmgToTarget, { isReflected:false });
+    if (ev.dmgToAttacker && ev.dmgToAttacker>0) {
+      // show reflected damage on attacker card center
+      const ac = rectCenter(fromSlot);
+      spawnDamageNumber(ac.x, ac.y, ev.dmgToAttacker, { isReflected:true });
+    }
+if (ev.dmgToAttacker && ev.dmgToAttacker>0) {
+      // show reflected damage on attacker card center
+      const ac = rectCenter(fromSlot);
+      spawnDamageNumber(ac.x, ac.y, ev.dmgToAttacker, { isReflected:true });
+    }
+
+    // Player HP damage numbers (server-authoritative)
+    try{
+      const myPill = (typeof infoMyHP!=='undefined') ? infoMyHP : document.getElementById('infoMyHP');
+      const enemyPill = (typeof infoEnemyHP!=='undefined') ? infoEnemyHP : document.getElementById('infoEnemyHP');
+      if (ev.role === ROLE && ev.playerDmgToEnemy && ev.playerDmgToEnemy>0 && enemyPill){
+        const rc = enemyPill.getBoundingClientRect();
+        spawnDamageNumber(rc.left + rc.width/2, rc.top + rc.height/2, ev.playerDmgToEnemy, { isReflected:false });
+        shakePill(enemyPill);
+      }
+      if (ev.role !== ROLE && ev.playerDmgToMe && ev.playerDmgToMe>0 && myPill){
+        const rc = myPill.getBoundingClientRect();
+        spawnDamageNumber(rc.left + rc.width/2, rc.top + rc.height/2, ev.playerDmgToMe, { isReflected:false });
+        shakePill(myPill);
+      }
+    }catch(e){}
+
+    setTimeout(()=>sword.remove(), 220);
+  };
+}
+
+function runDeathFX(ev){
+  // ev.deaths: [{role, from:{line,index}, card:{...}}]
+  const deaths = Array.isArray(ev.deaths) ? ev.deaths : [];
+  for (const d of deaths){
+    const role = d.role;
+    const from = d.from;
+    const fromSlot = getSlotEl(role, from.line, from.index);
+    const grave = getSideSlotEl(role, 'grave');
+    if (!fromSlot || !grave || !fxLayer) continue;
+
+    const a = rectCenter(fromSlot);
+    const b = rectCenter(grave);
+
+    // Try to clone the visible card for a clean "fly to grave" effect
+    const cardEl = fromSlot.querySelector('.card') || fromSlot.firstElementChild;
+    const ghost = document.createElement('div');
+    ghost.className = 'fx-deathcard';
+    ghost.style.left = a.x + 'px';
+    ghost.style.top  = a.y + 'px';
+    ghost.style.opacity = '0.98';
+
+    if (cardEl){
+      const r = cardEl.getBoundingClientRect();
+      ghost.style.width = r.width + 'px';
+      ghost.style.height = r.height + 'px';
+      ghost.style.borderRadius = '10px';
+      ghost.style.overflow = 'hidden';
+      ghost.innerHTML = cardEl.outerHTML;
+      ghost.style.filter = 'drop-shadow(0 0 14px rgba(255,120,0,.45))';
+    } else {
+      // fallback: small tile
+      ghost.style.width = '64px';
+      ghost.style.height = '86px';
+      ghost.style.borderRadius = '10px';
+      ghost.style.background = 'rgba(30,30,35,.9)';
+      ghost.style.border = '1px solid rgba(255,255,255,.12)';
+    }
+    fxLayer.appendChild(ghost);
+
+    // Small flame that rides on top of the moving card + leaves a trail
+    const burn = document.createElement('div');
+    burn.className = 'fx-burn';
+    burn.style.left = a.x + 'px';
+    burn.style.top  = a.y + 'px';
+    burn.style.opacity = '0.9';
+    fxLayer.appendChild(burn);
+
+    const dur = 780;
+    const t0 = performance.now();
+    let lastTrail = 0;
+
+    const tick = (now)=>{
+      const t = clamp01((now - t0) / dur);
+
+      // Smooth curve
+      const mx = (a.x + b.x) / 2;
+      const my = Math.min(a.y, b.y) - 70;
+
+      const x = (1-t)*(1-t)*a.x + 2*(1-t)*t*mx + t*t*b.x;
+      const y = (1-t)*(1-t)*a.y + 2*(1-t)*t*my + t*t*b.y;
+
+      ghost.style.left = x + 'px';
+      ghost.style.top  = y + 'px';
+      ghost.style.transform = `translate(-50%,-50%) scale(${1 - t*0.25}) rotate(${(t*6)}deg)`;
+      ghost.style.opacity = String(0.98 - t*0.35);
+
+      burn.style.left = x + 'px';
+      burn.style.top  = (y - 12) + 'px';
+      burn.style.transform = `translate(-50%,-50%) scale(${0.95 + Math.sin(t*10)*0.07})`;
+      burn.style.opacity = String(0.9 - t*0.25);
+
+      // Trail (lightweight): drop a small dot every ~60ms
+      if (now - lastTrail > 60){
+        lastTrail = now;
+        const tr = document.createElement('div');
+        tr.className = 'fx-trail';
+        tr.style.left = x + 'px';
+        tr.style.top  = y + 'px';
+        fxLayer.appendChild(tr);
+        tr.animate([
+          { transform:'translate(-50%,-50%) scale(1)', opacity:0.9 },
+          { transform:'translate(-50%,-50%) scale(0.1)', opacity:0 }
+        ], { duration: 520, easing:'cubic-bezier(.2,.8,.2,1)', fill:'forwards' });
+        setTimeout(()=>tr.remove(), 560);
+      }
+
+      if (t < 1) requestAnimationFrame(tick);
+      else {
+        // small pop at grave
+        burn.animate([
+          { transform:'translate(-50%,-50%) scale(1)', opacity:0.6 },
+          { transform:'translate(-50%,-50%) scale(1.5)', opacity:0 }
+        ], { duration: 260, easing:'ease-out', fill:'forwards' });
+        setTimeout(()=>{ ghost.remove(); burn.remove(); }, 260);
+      }
+    };
+    requestAnimationFrame(tick);
+  }
+}
+
+function renderBoard(boardEl, state, opts){
+  const { clickable, isEnemy, roleName } = opts;
+  boardEl.innerHTML = "";
+
+  const linesOrder = isEnemy ? ["back", "front"] : ["front", "back"];
+
+  for (const line of linesOrder){
+    const side = document.createElement("div");
+    side.className = "side-slot";
+    side.dataset.owner = roleName;
+    side.dataset.zone = (line === "back") ? "deck" : "grave";
+
+    if (line === "back") {
+      const deckCount = (typeof state.deckCount === "number") ? state.deckCount : 0;
+      side.innerText = `Deck\n(${deckCount})`;
+      // compra manual desativada (a compra é automática)
+    } else {
+      side.innerText = `Cemit.`;
+      side.classList.add("clickable");
+      side.onclick = () => openGraveyard(roleName);
+
+      const count = state.graveyard?.length ?? 0;
+      const badge = document.createElement("div");
+      badge.className = "count-badge";
+      badge.innerText = String(count);
+      side.appendChild(badge);
+    }
+
+    boardEl.appendChild(side);
+
+    for (let visualI = 0; visualI < 5; visualI++){
+      const actualI = isEnemy ? (4 - visualI) : visualI;
+      const s = document.createElement("div");
+      s.className = "slot";
+      s.dataset.owner = roleName;
+      s.dataset.line = line;
+      s.dataset.index = String(actualI);
+
+      const card = state[line][actualI];
+
+      s.onclick = () => {
+        if (mode?.type === "summon" && roleName === ROLE && clickable) {
+          if (!card) {
+            socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "playCard", handIndex: mode.handIndex, line, index: actualI } });
+            mode = null;
+            clearTargetHighlights();
+          }
+          return;
+        }
+        if (mode?.type === "hab" && roleName === ROLE && !isEnemy) {
+          if (mode.needs === "ally") {
+            if (!card) return;
+            socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useHab", from: mode.from, target: { role: ROLE, pos: { line, index: actualI } } } });
+            mode = null;
+            clearTargetHighlights();
+            return;
+          }
+        }
+                if (mode?.type === "ult") {
+          // Ultimate can target ally or enemy depending on card
+          if (mode.needs === "enemy" && roleName !== ROLE && isEnemy) {
+            if (!card) return;
+            socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useUlt", from: mode.from, target: { role: roleName, pos: { line, index: actualI } } } });
+            mode = null;
+            clearTargetHighlights();
+            return;
+          }
+          if (mode.needs === "ally" && roleName === ROLE && !isEnemy) {
+            if (!card) return;
+            socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useUlt", from: mode.from, target: { role: ROLE, pos: { line, index: actualI } } } });
+            mode = null;
+            clearTargetHighlights();
+            return;
+          }
+        }
+
+if (mode?.type === "attack" && roleName !== ROLE && isEnemy) {
+          if (!card) return;
+          socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "attack", from: mode.from, to: { line, index: actualI } } });
+          mode = null;
+          clearTargetHighlights();
+          return;
+        }
+        if (card) openModal({ zone: "field", role: roleName, line, index: actualI, card });
+      };
+
+      if (card){
+        const pa = document.createElement("div");
+        pa.className = "card pa";
+        // (reusing pa style from previous; simpler here)
+        const paBadge = document.createElement("div");
+        paBadge.style.position = "absolute";
+        paBadge.style.top = "4px";
+        paBadge.style.right = "4px";
+        paBadge.style.background = "rgba(0,0,0,.55)";
+        paBadge.style.color = "#fff";
+        paBadge.style.borderRadius = "999px";
+        paBadge.style.fontSize = "11px";
+        paBadge.style.padding = "2px 6px";
+        paBadge.style.fontWeight = "800";
+        paBadge.textContent = `PA ${card.pa ?? 0}`;
+        s.appendChild(paBadge);
+
+        const cdiv = document.createElement("div");
+        cdiv.className = "card";
+        cdiv.innerHTML = `
+          <div class="top">
+            <div class="name">${card.name ?? "Carta"}</div>
+            <div class="type">${typeIcon(card.type)}</div>
+          </div>
+          <div class="tribe">${card.tribe ?? "-"}</div>
+          <div class="stats"><div>A ${card.atk ?? 0}</div><div>D ${card.def ?? 0}</div><div>V ${card.hp ?? 0}</div></div>
+        `;
+        s.appendChild(cdiv);
+      }
+
+      boardEl.appendChild(s);
+    }
+  }
+}
+
+function renderHand(){
+  myHandEl.innerHTML = "";
+  const hand = gameState?.[ROLE]?.hand || [];
+  hand.forEach((card, i) => {
+    const el = document.createElement("div");
+    el.className = "hand-card";
+    el.onclick = () => openModal({ zone:"hand", role: ROLE, handIndex: i, card });
+    const stars = document.createElement("div");
+    stars.className = "hc-stars";
+    stars.textContent = `${starsText(card.piCost ?? card.stars ?? 1)} (${card.piCost ?? card.stars ?? 1})`;
+    el.appendChild(stars);
+    el.innerHTML += `
+      <div style="display:flex;justify-content:space-between;gap:6px;align-items:center;">
+        <div style="font-weight:900;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${card.name ?? "Carta"}</div>
+        <div style="font-size:14px">${typeIcon(card.type)}</div>
+      </div>
+      <div style="font-size:10px;opacity:.85;text-align:left;">${card.tribe ?? "-"}</div>
+      <div style="margin-top:auto;background:#333;border-radius:10px;padding:4px 6px;display:flex;justify-content:space-between;font-size:11px;">
+        <div>A ${card.atk ?? 0}</div><div>D ${card.def ?? 0}</div><div>V ${card.hp ?? 0}</div>
+      </div>
+    `;
+    myHandEl.appendChild(el);
+  });
+  if (hand.length === 0){
+    const empty = document.createElement("div");
+    empty.style.opacity = ".7";
+    empty.style.fontSize = "12px";
+    empty.textContent = "(mão vazia)";
+    myHandEl.appendChild(empty);
+  }
+}
+
+function renderEnemyHand(){
+  enemyHandEl.innerHTML = "";
+  const enemy = otherRole(ROLE);
+  const count = Math.max(0, gameState?.[enemy]?.handCount || 0);
+  for (let i=0;i<count;i++){
+    const back = document.createElement("div");
+    back.className = "enemy-hand-card";
+    enemyHandEl.appendChild(back);
+  }
+  const label = document.createElement("div");
+  label.className = "enemy-hand-count";
+  label.textContent = String(count);
+  enemyHandEl.appendChild(label);
+}
+
+function renderGame(){
+  if (!gameState || !ROLE) return;
+  const enemy = otherRole(ROLE);
+
+  infoRound.textContent = `Turno: ${ROUND}`;
+  infoActive.textContent = `Vez: ${ACTIVE}`;
+  infoRoom.textContent = `Sala: ${ROOM_ID}`;
+  infoRole.textContent = `Role: ${ROLE}`;
+  const myPI = gameState?.[ROLE]?.pi ?? 0;
+  infoPI.textContent = `PI: ${myPI}/7`;
+
+  const myHP = gameState?.[ROLE]?.playerHp ?? 0;
+  const myDEF = gameState?.[ROLE]?.playerDef ?? 0;
+  const eHP = gameState?.[enemy]?.playerHp ?? 0;
+  const eDEF = gameState?.[enemy]?.playerDef ?? 0;
+  infoMyHP.textContent = `Você: HP ${myHP}/1000  DEF ${myDEF}`;
+  infoEnemyHP.textContent = `Oponente: HP ${eHP}/1000  DEF ${eDEF}`;
+
+  renderBoard(enemyBoard, gameState[enemy], { clickable:false, isEnemy:true, roleName: enemy });
+  renderBoard(myBoard, gameState[ROLE], { clickable:true, isEnemy:false, roleName: ROLE });
+
+  renderEnemyHand();
+  renderHand();
+
+  if (mode?.type === "attack") highlightEnemyTargets();
+  highlightAllyTargets();
+}
+
+/**
+ * =============================
+ *  Modal (Card zoom + Graveyard)
+ * =============================
+ */
+const modalBackdrop = document.getElementById("modalBackdrop");
+const zoomCardEl = document.getElementById("zoomCard");
+const modalActionsEl = document.getElementById("modalActions");
+const graveListEl = document.getElementById("graveList");
+
+function mkBtn(label, cls, onClick){
+  const b = document.createElement("button");
+  b.className = "btn" + (cls ? " " + cls : "");
+  b.textContent = label;
+  b.onclick = onClick;
+  return b;
+}
+
+function openModal(payload){
+  modalCard = payload;
+  graveView = null;
+  renderModal();
+  modalBackdrop.classList.add("open");
+}
+
+function closeModal(clearMode=false){
+  modalBackdrop.classList.remove("open");
+  modalCard = null;
+  graveView = null;
+  graveListEl.style.display = "none";
+  graveListEl.innerHTML = "";
+  if (clearMode) mode = null;
+  clearTargetHighlights();
+}
+
+modalBackdrop.addEventListener("click", (e) => {
+  if (e.target === modalBackdrop) closeModal(true);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" || e.key === "Esc") closeModal(true);
+});
+
+function openGraveyard(role){
+  graveView = { role };
+  modalCard = null;
+  mode = null;
+  clearTargetHighlights();
+
+  zoomCardEl.innerHTML = `
+    <div class="z-pa">CEMITÉRIO</div>
+    <div>
+      <div class="z-name">${role === ROLE ? "Seu Cemitério" : "Cemitério do Oponente"}</div>
+      <div class="z-tribe">Cartas destruídas</div>
+      <div class="z-meta">
+        <div class="z-type">☠️</div>
+        <div class="z-stars">${(gameState?.[role]?.graveyard?.length ?? 0)} cartas</div>
+      </div>
+    </div>
+    <div class="z-stats"><div style="opacity:.85">Clique numa carta abaixo</div></div>
+  `;
+  modalActionsEl.innerHTML = "";
+  modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
+
+  graveListEl.style.display = "grid";
+  renderGraveList(role);
+  modalBackdrop.classList.add("open");
+}
+
+function renderGraveList(role){
+  graveListEl.innerHTML = "";
+  const list = gameState?.[role]?.graveyard || [];
+  if (!list.length){
+    graveListEl.innerHTML = `<div style="grid-column:1/-1;opacity:.75;font-size:12px;">(cemitério vazio)</div>`;
+    return;
+  }
+  const rev = [...list].reverse();
+  rev.forEach((c) => {
+    const it = document.createElement("div");
+    it.className = "grave-item";
+    it.onclick = () => {
+      openModal({ zone:"grave", role, card: c });
+      modalActionsEl.innerHTML = "";
+      modalActionsEl.appendChild(mkBtn("Voltar","",()=>openGraveyard(role)));
+    };
+    it.innerHTML = `
+      <div style="display:flex;justify-content:space-between;gap:6px;align-items:center;">
+        <div style="font-weight:900;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.name ?? "Carta"}</div>
+        <div style="font-size:16px">${typeIcon(c.type)}</div>
+      </div>
+      <div style="font-size:11px;opacity:.8;text-align:left;margin-top:2px;">${c.tribe ?? "-"}</div>
+      <div style="margin-top:6px;font-size:12px;display:flex;justify-content:space-between;background:#2a2a2a;border-radius:10px;padding:4px 8px;">
+        <div>A ${c.atk ?? 0}</div><div>D ${c.def ?? 0}</div><div>V ${c.maxHp ?? 0}</div>
+      </div>
+    `;
+    graveListEl.appendChild(it);
+  });
+}
+
+function renderModal(){
+  graveListEl.style.display = "none";
+  graveListEl.innerHTML = "";
+  if (!modalCard || !modalCard.card) return;
+
+  const c = modalCard.card;
+  const paTxt = Number.isInteger(c.pa) ? `PA ${c.pa}/11` : "";
+  const abilityTxt = (c.habName || c.habDesc || c.ultName || c.ultDesc)
+    ? `<div class="z-ability">
+         <b>HAB:</b> ${c.habName || "-"}<br/>
+         <span style="opacity:.9">${c.habDesc || "-"}</span><br/><br/>
+         <b>ULT:</b> ${c.ultName || "—"}<br/>
+         <span style="opacity:.9">${c.ultDesc || "-"}</span>
+       </div>`
+    : "";
+
+  zoomCardEl.innerHTML = `
+    <div class="z-pa">${paTxt || `PI ${c.piCost ?? c.stars ?? 1}`}</div>
+    <div>
+      <div class="z-name">${c.name ?? "Carta"}</div>
+      <div class="z-tribe">${c.tribe ?? "-"}</div>
+      <div class="z-meta">
+        <div class="z-type">${typeIcon(c.type)} <span style="font-size:13px;font-weight:800">${c.type ?? ""}</span></div>
+        <div class="z-stars">${starsText(c.piCost ?? c.stars ?? 1)} (${c.piCost ?? c.stars ?? 1} PI)</div>
+      </div>
+      <div class="z-stats">
+        <div>ATK ${c.atk ?? 0}</div>
+        <div>DEF ${c.def ?? 0}</div>
+        <div>HP ${c.hp ?? c.maxHp ?? 0}</div>
+      </div>
+      ${abilityTxt}
+    </div>
+  `;
+
+  modalActionsEl.innerHTML = "";
+
+  if (modalCard.zone === "field" && modalCard.role === ROLE) {
+    modalActionsEl.appendChild(mkBtn("Habilidade","primary",()=>{
+      if (ACTIVE !== ROLE) return alert("Não é sua vez");
+      const cost = 3;
+      if ((c.pa ?? 0) < cost) return alert(`PA insuficiente (custa ${cost}).`);
+      const kind = abilityKindForCard(c);
+      if (kind === "HEAL_ALLY") {
+        mode = { type: "hab", needs: "ally", from: { line: modalCard.line, index: modalCard.index } };
+        closeModal(false);
+        highlightAllyTargets();
+        return;
+      }
+      // no target needed
+      socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useHab", from: { line: modalCard.line, index: modalCard.index } } });
+      closeModal(false);
+    }));
+    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
+  }
+
+  if (modalCard.zone === "hand") {
+    modalActionsEl.appendChild(mkBtn("Invocar","primary",()=>{
+      if (ACTIVE !== ROLE) return alert("Não é sua vez");
+      const myPI = gameState?.[ROLE]?.pi ?? 0;
+      const cost = c.piCost ?? c.stars ?? 1;
+      if (myPI < cost) return alert(`PI insuficiente (custa ${cost}).`);
+      mode = { type: "summon", handIndex: modalCard.handIndex };
+      closeModal(false);
+    }));
+    modalActionsEl.appendChild(mkBtn("Cancelar","",()=>closeModal(true)));
+  }
+
+  if (modalCard.zone === "field") {
+    const isMine = (modalCard.role === ROLE);
+    const btnAtk = mkBtn("Ataque","primary",()=>{
+      if (!isMine) return alert("Você só comanda suas cartas.");
+      if (ACTIVE !== ROLE) return alert("Não é sua vez");
+      const cur = c.pa ?? 0;
+      if (cur < 2) return alert("PA insuficiente (ataque custa 2).");
+      mode = { type:"attack", from: { line: modalCard.line, index: modalCard.index } };
+      closeModal(false);
+      highlightEnemyTargets();
+  highlightAllyTargets();
+    });
+        modalActionsEl.appendChild(btnAtk);
+
+    const btnUlt = mkBtn("Ultimate","primary",()=>{
+      if (!isMine) return alert("Você só comanda suas cartas.");
+      if (ACTIVE !== ROLE) return alert("Não é sua vez");
+      const cur = c.pa ?? 0;
+      if (cur < 6) return alert("PA insuficiente (Ultimate custa 6).");
+      const uk = ultimateKindForCard(c);
+      const needs = (uk === "HEAL_ALLY_ULT") ? "ally" : "enemy";
+      mode = { type:"ult", from: { line: modalCard.line, index: modalCard.index }, needs };
+      closeModal(false);
+      if (needs === "enemy") highlightEnemyTargets();
+      else highlightAllyTargets();
+    });
+    modalActionsEl.appendChild(btnUlt);
+
+    modalActionsEl.appendChild(mkBtn("Cancelar","",()=>closeModal(true)));
+  }
+
+  if (modalCard.zone === "model") {
+    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
+  }
+
+  if (modalCard.zone === "grave") {
+    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
+  }
+}
+
+/* Attack targeting highlight */
+function clearTargetHighlights(){
+  document.querySelectorAll(".slot.targetable").forEach(el => el.classList.remove("targetable"));
+}
+function highlightEnemyTargets(){
+  clearTargetHighlights();
+  if (!mode || mode.type !== "attack") return;
+
+  const enemy = otherRole(ROLE);
+  const opp = gameState?.[enemy];
+  if (!opp) return;
+
+  const fromCard = gameState?.[ROLE]?.[mode.from.line]?.[mode.from.index];
+  const attackerType = fromCard?.type;
+
+  const enemyFrontHas = (opp.front || []).some(c => c);
+  const canHitBack =
+    (attackerType === "Ranged" || attackerType === "Support") ||
+    ((attackerType === "Melee" || attackerType === "Tank") && !enemyFrontHas);
+
+  ["front","back"].forEach(line => {
+    if (line === "back" && !canHitBack) return;
+    for (let i=0;i<5;i++){
+      const c = opp[line][i];
+      if (!c) continue;
+      const slot = document.querySelector(`.slot[data-owner="${enemy}"][data-line="${line}"][data-index="${i}"]`);
+      if (slot) slot.classList.add("targetable");
+    }
+  });
+}
+
+function highlightAllyTargets(){
+  clearTargetHighlights();
+  if (!mode || mode.type !== "hab" || mode.needs !== "ally") return;
+  const me = gameState?.[ROLE];
+  if (!me) return;
+  ["front","back"].forEach(line=>{
+    for(let i=0;i<5;i++){
+      const c = me[line]?.[i];
+      if (c){
+        const el = getSlotEl(ROLE, line, i);
+        if (el) el.classList.add("targetable");
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
