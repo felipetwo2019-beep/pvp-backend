@@ -1344,7 +1344,6 @@ function openGraveyard(role){
     <div class="z-stats"><div style="opacity:.85">Clique numa carta abaixo</div></div>
   `;
   modalActionsEl.innerHTML = "";
-  modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
 
   graveListEl.style.display = "grid";
   renderGraveList(role);
@@ -1437,7 +1436,6 @@ function renderModal(){
       mode = { type: "summon", handIndex: modalCard.handIndex };
       closeModal(false);
     }));
-    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
   }
 
   if (modalCard.zone === "field") {
@@ -1453,28 +1451,31 @@ function renderModal(){
     });
         modalActionsEl.appendChild(btnAtk);
 
-    const btnUlt = mkBtn("Ultimate","primary",()=>{
-      if (!isMine) return alert("Você só comanda suas cartas.");
-      if (ACTIVE !== ROLE) return alert("Não é sua vez");
-      const cur = c.pa ?? 0;
-      const ultCost = 5;
-      if (cur < ultCost) return alert(`PA insuficiente (Ultimate custa ${ultCost}).`);
-      const needs = getActionTargetMode(c, "ult");
-      mode = { type:"ult", from: { line: modalCard.line, index: modalCard.index }, needs, actionType: "ult" };
-      closeModal(false);
-      updateTargetHighlights();
-    });
-    modalActionsEl.appendChild(btnUlt);
-
-    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
+    const cur = c.pa ?? 0;
+    const ultCost = 5;
+    if (isMine) {
+      const btnUlt = mkBtn("Ultimate","primary",()=>{
+        if (btnUlt.disabled) return;
+        const from = { line: modalCard.line, index: modalCard.index };
+        // TODO: add target selection when ultimate requires it.
+        socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useUlt", from } });
+        closeModal(false);
+      });
+      const canUseUlt = ACTIVE === ROLE && cur >= ultCost;
+      if (!canUseUlt) {
+        btnUlt.disabled = true;
+        btnUlt.classList.add("disabled");
+      }
+      modalActionsEl.appendChild(btnUlt);
+    }
   }
 
   if (modalCard.zone === "model") {
-    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
+    modalActionsEl.innerHTML = "";
   }
 
   if (modalCard.zone === "grave") {
-    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
+    modalActionsEl.innerHTML = "";
   }
 }
 
