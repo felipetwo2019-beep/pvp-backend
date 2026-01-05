@@ -998,8 +998,9 @@ function applyAction(room, role, from, target, actionType){
   if ((source.pa ?? 0) < cost) return { ok:false, reason:"no_pa" };
   if (!canUseAction(room, source, actionType)) return { ok:false, reason:"cooldown" };
   let resolvedTarget = null;
+  let targetCard = null;
   if (target?.role && target?.pos) {
-    const targetCard = room.state[target.role]?.[target.pos.line]?.[target.pos.index];
+    targetCard = room.state[target.role]?.[target.pos.line]?.[target.pos.index] || null;
     if (targetCard) resolvedTarget = { role: target.role, pos: target.pos, card: targetCard };
   }
   if (target?.role && Number.isInteger(target.graveyardIndex)) {
