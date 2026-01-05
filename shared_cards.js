@@ -60,6 +60,13 @@
     "U-1": { dbId:"U-1", type:normType("Utility"), rarity:normRarity("utility"), name:"Poção de Energia", tribe:"Item", atk:0, def:0, maxHp:0, enterPA:0, piCost:1, habName:"Infusão Energética", habDesc:"+3 PA ao alvo", ultName:null, ultDesc:"-", effectType:"add_pa", img:"https://robohash.org/U-1?set=set3&size=300x300" },
   };
 
+  for (const id in CARD_DB) {
+    const card = CARD_DB[id];
+    card.habDesc = "";
+    card.ultDesc = "";
+    card.effectType = null;
+  }
+
   // Ensure maxHp sane
   for (const id in CARD_DB) {
     const c = CARD_DB[id];

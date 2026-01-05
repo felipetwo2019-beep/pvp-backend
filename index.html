@@ -258,7 +258,7 @@
           <div id="myHand" class="hand"></div>
           <div class="hint">
             Clique em carta da mão para invocar. Clique na carta do campo para atacar.<br>
-            Clique no <b>[CEMIT]</b> para ver o cemitério. ESC cancela/fecha.
+            Clique no <b>[CEMIT]</b> para ver o cemitério. ESC fecha.
           </div>
         </div>
 
@@ -340,29 +340,7 @@ function typeIcon(type){
 }
 
 function getActionTargetMode(card, actionType){
-  const id = card?.dbId;
-  if (actionType === "skill") {
-    if (["L-1","L-2","L-3","L-4","L-6","L-7","L-14","L-16","L-18"].includes(id)) return "ally";
-    if (id === "L-11") return "ally_or_enemy";
-    if (["L-17","L-19","L-8","L-9","L-10"].includes(id)) return "none";
-    if (["L-5","L-12","L-15"].includes(id)) return "enemy";
-    const t = String(card?.type||"").toUpperCase();
-    if (t === "SUPPORT") return "ally";
-    if (t === "UTILITY") return "none";
-    return "enemy";
-  }
-  if (actionType === "ult") {
-    if (["L-2","L-3","L-6","L-16"].includes(id)) return "ally";
-    if (id === "L-7") return "ally_or_enemy";
-    if (["L-4","L-5","L-8","L-10","L-11","L-14","L-15","L-17","L-19"].includes(id)) return "none";
-    if (["L-9","L-13","L-18"].includes(id)) return "enemy";
-    if (id === "L-1") return "none";
-    if (id === "L-12") return "ally";
-    const t = String(card?.type||"").toUpperCase();
-    if (t === "SUPPORT") return "ally";
-    if (t === "UTILITY") return "none";
-    return "enemy";
-  }
+  if (actionType === "skill" || actionType === "ult") return "enemy";
   return "none";
 }
 
@@ -1410,14 +1388,7 @@ function renderModal(){
 
   const c = modalCard.card;
   const paTxt = Number.isInteger(c.pa) ? `PA ${c.pa}/11` : "";
-  const abilityTxt = (c.habName || c.habDesc || c.ultName || c.ultDesc)
-    ? `<div class="z-ability">
-         <b>HAB:</b> ${c.habName || "-"}<br/>
-         <span style="opacity:.9">${c.habDesc || "-"}</span><br/><br/>
-         <b>ULT:</b> ${c.ultName || "—"}<br/>
-         <span style="opacity:.9">${c.ultDesc || "-"}</span>
-       </div>`
-    : "";
+  const abilityTxt = "";
 
   zoomCardEl.innerHTML = `
     <div class="z-pa">${paTxt || `PI ${c.piCost ?? c.stars ?? 1}`}</div>
@@ -1442,7 +1413,7 @@ function renderModal(){
   if (modalCard.zone === "field" && modalCard.role === ROLE) {
     modalActionsEl.appendChild(mkBtn("Habilidade","primary",()=>{
       if (ACTIVE !== ROLE) return alert("Não é sua vez");
-      const cost = (c.dbId === "L-11") ? 1 : 3;
+      const cost = 3;
       if ((c.pa ?? 0) < cost) return alert(`PA insuficiente (custa ${cost}).`);
       const needs = getActionTargetMode(c, "skill");
       if (needs === "ally" || needs === "enemy" || needs === "ally_or_enemy") {
@@ -1455,7 +1426,6 @@ function renderModal(){
       socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useHab", from: { line: modalCard.line, index: modalCard.index } } });
       closeModal(false);
     }));
-    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
   }
 
   if (modalCard.zone === "hand") {
@@ -1467,7 +1437,7 @@ function renderModal(){
       mode = { type: "summon", handIndex: modalCard.handIndex };
       closeModal(false);
     }));
-    modalActionsEl.appendChild(mkBtn("Cancelar","",()=>closeModal(true)));
+    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
   }
 
   if (modalCard.zone === "field") {
@@ -1487,7 +1457,7 @@ function renderModal(){
       if (!isMine) return alert("Você só comanda suas cartas.");
       if (ACTIVE !== ROLE) return alert("Não é sua vez");
       const cur = c.pa ?? 0;
-      const ultCost = (c.dbId === "L-14") ? 6 : 5;
+      const ultCost = 5;
       if (cur < ultCost) return alert(`PA insuficiente (Ultimate custa ${ultCost}).`);
       const needs = getActionTargetMode(c, "ult");
       mode = { type:"ult", from: { line: modalCard.line, index: modalCard.index }, needs, actionType: "ult" };
@@ -1496,7 +1466,7 @@ function renderModal(){
     });
     modalActionsEl.appendChild(btnUlt);
 
-    modalActionsEl.appendChild(mkBtn("Cancelar","",()=>closeModal(true)));
+    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
   }
 
   if (modalCard.zone === "model") {
@@ -1524,9 +1494,7 @@ function highlightEnemyTargets({ blink = false, actionType = "attack" } = {}){
   if (!opp) return;
 
   const fromCard = gameState?.[ROLE]?.[mode.from.line]?.[mode.from.index];
-  const canHitBack = (actionType === "skill" && fromCard?.dbId === "L-11")
-    ? true
-    : canTargetBackRow(fromCard, enemy);
+  const canHitBack = canTargetBackRow(fromCard, enemy);
 
   ["front","back"].forEach(line => {
     if (line === "back" && !canHitBack) return;
