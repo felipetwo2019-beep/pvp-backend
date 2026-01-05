@@ -226,7 +226,6 @@ function emitGameOver(room){
   return true;
 }
 
-
 // ===== Abilities / Status Effects =====
 const HAB_COST_PA = 3;
 const ULT_COST_PA = 5;
@@ -305,6 +304,7 @@ function getEffectiveDef(room, card){
 function getEffectiveAtk(room, card){
   const baseAtk = Number.isInteger(card?.atk) ? card.atk : 0;
   const flat = getActiveEffects(room, card, "atk_flat").reduce((sum, e) => sum + (e.value || 0), 0);
+
   const missingEffects = getActiveEffects(room, card, "atk_missing_hp");
   let missingBonus = 0;
   for (const e of missingEffects){
@@ -313,6 +313,7 @@ function getEffectiveAtk(room, card){
     const missing = Math.max(0, (card.maxHp ?? 0) - (card.hp ?? 0));
     missingBonus += Math.floor(missing / perHp) * bonus;
   }
+
   let tribeBonus = 0;
   for (const e of getActiveEffects(room, card, "atk_per_tribe")){
     const tribe = e.meta?.tribe;
@@ -323,22 +324,28 @@ function getEffectiveAtk(room, card){
     const count = ["front","back"].reduce((sum, line) => sum + ps[line].filter(c => c && c.tribe === tribe).length, 0);
     tribeBonus += count * per;
   }
+
   let mult = 1;
+
   for (const e of getActiveEffects(room, card, "atk_mult")){
     mult *= (e.value || 1);
   }
+
   const teamMult = getTeamEffects(room.state[card.owner], "atk_mult");
   for (const e of teamMult) mult *= (e.value || 1);
+
   for (const e of getActiveEffects(room, card, "atk_shield_mult")){
     const perShield = e.meta?.perShield ?? 20;
     const bonusPct = e.meta?.bonusPct ?? 0;
     const shieldBonus = Math.floor((card.shield || 0) / perShield) * bonusPct;
     mult *= (e.value || 1) + shieldBonus;
   }
+
   for (const e of getActiveEffects(room, card, "l16_dice")){
     const atkMult = e.meta?.atkMult ?? 1;
     mult *= atkMult;
   }
+
   return Math.max(0, Math.floor((baseAtk + flat + missingBonus + tribeBonus) * mult));
 }
 
@@ -396,11 +403,6 @@ function findCardPosition(room, role, instanceId){
     }
   }
   return null;
-}
-
-function findCardField(room, card){
-  if (!card?.owner) return null;
-  return findCardPosition(room, card.owner, card.instanceId);
 }
 
 function isSupportAction(card, actionType){
@@ -551,10 +553,12 @@ function canTargetBackRow(room, source, targetRole){
 function applyDamageToCard(room, source, targetRole, targetPos, amount, options = {}){
   const targetPs = room.state[targetRole];
   if (!targetPs) return { dmg: 0, deaths: [] };
+
   let target = targetPs[targetPos.line]?.[targetPos.index];
   if (!target) return { dmg: 0, deaths: [] };
   ensureCardState(target);
 
+  // intercept (redirige o alvo para o "interceptor")
   const intercepts = getActiveEffects(room, target, "intercept");
   if (intercepts.length > 0) {
     const interceptorId = intercepts[0].meta?.sourceInstanceId;
@@ -566,14 +570,20 @@ function applyDamageToCard(room, source, targetRole, targetPos, amount, options 
     }
   }
 
+  // ===== cálculo de dano final (antes de aplicar) =====
   let finalDmg = Math.max(0, amount);
+
   if (source && isPacifist(room, source)) finalDmg = 0;
   if (hasDamageImmunity(room, target)) finalDmg = 0;
+
   finalDmg *= getDamageTakenMultiplier(room, target);
+
   const reduction = getDamageReduction(room, target);
   if (reduction > 0) finalDmg *= (1 - reduction);
+
   finalDmg = Math.max(0, Math.floor(finalDmg));
 
+  // redirect skeletons
   if (finalDmg > 0 && !options.skipRedirect) {
     const redirect = getActiveEffects(room, target, "damage_redirect_skeletons");
     if (redirect.length > 0) {
@@ -586,6 +596,7 @@ function applyDamageToCard(room, source, targetRole, targetPos, amount, options 
         const redirectTotal = finalDmg * 0.2;
         const per = redirectTotal / skeletons.length;
         finalDmg -= redirectTotal;
+
         for (const skel of skeletons) {
           const pos = findCardPosition(room, owner, skel.instanceId);
           if (pos) {
@@ -596,22 +607,26 @@ function applyDamageToCard(room, source, targetRole, targetPos, amount, options 
     }
   }
 
-  if (finalDmg > 0 && target.shield > 0) {
+  // shield absorve primeiro
+  if (finalDmg > 0 && (target.shield || 0) > 0) {
     const absorbed = Math.min(target.shield, finalDmg);
     target.shield -= absorbed;
     finalDmg -= absorbed;
   }
 
+  // aplica no HP
   if (finalDmg > 0) {
     target.hp = Math.max(0, (target.hp ?? 0) - finalDmg);
   }
 
+  // mortes
   const deaths = [];
   if ((target.hp ?? 0) <= 0) {
     deaths.push({ role: targetRole, from: { line: targetPos.line, index: targetPos.index }, card: { ...target, hp: 0 } });
     targetPs.graveyard.push({ ...target, hp: 0 });
     targetPs[targetPos.line][targetPos.index] = null;
   }
+
   return { dmg: finalDmg, deaths, resolvedTarget: { role: targetRole, pos: targetPos, card: target } };
 }
 
@@ -632,6 +647,12 @@ function handlePaSteal(room, source, targetCard){
     if (Math.random() < chance) removePa();
   }
 }
+
+/* executeSupportAction + applyAction are included here in the file
+   (omitted in this preview block for brevity in this Python cell).
+   They are present in the generated file below. */
+
+# To keep this cell size manageable, we append the remainder from a prepared file stored in-memory.
 
 function executeSupportAction(room, actionType, source, target){
   const owner = room.state[source.owner];
@@ -719,26 +740,22 @@ function executeSupportAction(room, actionType, source, target){
   if (source.dbId === "L-7" && actionType === "ult") {
     if (!effectTarget) return { ok:false, reason:"need_target" };
     if (effectTarget.owner === source.owner) {
-      const healAmount = Math.max(0, (effectTarget.maxHp ?? 0) - (effectTarget.hp ?? 0));
       effectTarget.hp = effectTarget.maxHp ?? effectTarget.hp;
       if (!Number.isFinite(effectTarget.maxHp)) effectTarget.maxHp = effectTarget.hp;
-      if (healAmount > 0) effectTarget.hp = effectTarget.maxHp;
     }
     addStatusEffect(effectTarget, { id:`l7_ult_${source.instanceId}_${effectTarget.instanceId}`, sourceDbId: source.dbId, type:"pacifist", value:1, turnsLeft: effectTarget.owner === source.owner ? 1 : 2, filters:{}, meta:{} });
     return { ok:true, support:true };
   }
   if (source.dbId === "L-8" && actionType === "skill") {
-    const ownerEntity = owner;
-    const skeletonsField = ["front","back"].flatMap(line => ownerEntity[line].filter(c => c && c.tribe === "Esqueletos"));
-    const skeletonsGy = ownerEntity.graveyard.filter(c => c.tribe === "Esqueletos");
+    const skeletonsField = ["front","back"].flatMap(line => owner[line].filter(c => c && c.tribe === "Esqueletos"));
+    const skeletonsGy = owner.graveyard.filter(c => c.tribe === "Esqueletos");
     const bonus = (skeletonsField.length + skeletonsGy.length) * 20;
     addStatusEffect(source, { id:`l8_skill_atk_${source.instanceId}`, sourceDbId: source.dbId, type:"atk_flat", value:bonus, turnsLeft:2, filters:{}, meta:{ countField: skeletonsField.length, countGy: skeletonsGy.length } });
     addStatusEffect(source, { id:`l8_skill_redirect_${source.instanceId}`, sourceDbId: source.dbId, type:"damage_redirect_skeletons", value:0.2, turnsLeft:1, filters:{}, meta:{} });
     return { ok:true, support:true };
   }
   if (source.dbId === "L-8" && actionType === "ult") {
-    const ownerEntity = owner;
-    const bonus = ownerEntity.graveyard.filter(c => c.tribe === "Esqueletos").reduce((sum, c) => sum + (c.atk || 0), 0);
+    const bonus = owner.graveyard.filter(c => c.tribe === "Esqueletos").reduce((sum, c) => sum + (c.atk || 0), 0);
     addStatusEffect(source, { id:`l8_ult_atk_${source.instanceId}`, sourceDbId: source.dbId, type:"atk_flat", value:bonus, turnsLeft:1, filters:{}, meta:{} });
     return { ok:true, support:true };
   }
@@ -768,11 +785,7 @@ function executeSupportAction(room, actionType, source, target){
     const toLine = fromPos.line === "front" ? "back" : "front";
     const swapCard = targetOwner[toLine][fromPos.index];
     targetOwner[fromPos.line][fromPos.index] = swapCard || null;
-    if (swapCard) {
-      targetOwner[toLine][fromPos.index] = effectTarget;
-    } else {
-      targetOwner[toLine][fromPos.index] = effectTarget;
-    }
+    targetOwner[toLine][fromPos.index] = effectTarget;
     return { ok:true, support:true };
   }
   if (source.dbId === "L-11" && actionType === "ult") {
@@ -831,13 +844,12 @@ function executeSupportAction(room, actionType, source, target){
     effectTarget.controlOrigin = { owner: effectTarget.owner, pos: originPos };
     effectTarget.controlReleaseTurn = room.match.turnCounter + 2;
     effectTarget.controlImmune = true;
-    const controller = owner;
-    const spot = ["front","back"].flatMap(line => controller[line].map((c, idx) => ({ line, idx, c }))).find(s => !s.c);
+    const spot = ["front","back"].flatMap(line => owner[line].map((c, idx) => ({ line, idx, c }))).find(s => !s.c);
     if (spot) {
       room.state[enemyRoleOf(source.owner)][originPos.line][originPos.index] = null;
       effectTarget.owner = source.owner;
       effectTarget.controlMoved = true;
-      controller[spot.line][spot.idx] = effectTarget;
+      owner[spot.line][spot.idx] = effectTarget;
     }
     addStatusEffect(effectTarget, { id:`l13_control_${source.instanceId}_${effectTarget.instanceId}`, sourceDbId: source.dbId, type:"mind_control", value:1, turnsLeft:2, filters:{}, meta:{ controller: source.owner } });
     return { ok:true, support:true };
@@ -992,13 +1004,18 @@ function applyAction(room, role, from, target, actionType){
   if (!ps) return { ok:false, reason:"no_player" };
   const source = ps[from.line]?.[from.index];
   if (!source) return { ok:false, reason:"no_card" };
+
   source.owner = role;
   ensureCardState(source);
+
   const cost = getActionCost(source, actionType);
   if ((source.pa ?? 0) < cost) return { ok:false, reason:"no_pa" };
   if (!canUseAction(room, source, actionType)) return { ok:false, reason:"cooldown" };
+
+  // resolve target (board OR graveyard)
   let resolvedTarget = null;
   let targetCard = null;
+
   if (target?.role && target?.pos) {
     targetCard = room.state[target.role]?.[target.pos.line]?.[target.pos.index] || null;
     if (targetCard) resolvedTarget = { role: target.role, pos: target.pos, card: targetCard };
@@ -1012,39 +1029,55 @@ function applyAction(room, role, from, target, actionType){
     resolvedTarget = { role: target.role, graveyardCard: gyCard };
   }
 
+  // bloqueio do L-11 skill se "drunk" ativo
   if (actionType === "skill" && source.dbId === "L-11") {
     const drunk = getActiveEffects(room, source, "damage_reduction").some(e => e.id?.startsWith("l11_drunk"));
     if (drunk) return { ok:false, reason:"blocked" };
   }
 
-  if (targetCard && targetCard.owner !== role && target.pos.line === "back" && !canTargetBackRow(room, source, target.role) && !(source.dbId === "L-11" && actionType === "skill")) {
+  // trava backrow contra inimigo
+  if (targetCard && targetCard.owner !== role && target?.pos?.line === "back" && !canTargetBackRow(room, source, target.role) && !(source.dbId === "L-11" && actionType === "skill")) {
     return { ok:false, reason:"front_block" };
   }
 
+  // paga custo
   source.pa -= cost;
 
+  // support actions
   if (isSupportAction(source, actionType)) {
     const supportRes = executeSupportAction(room, actionType, source, resolvedTarget || target);
     if (!supportRes.ok) {
+      // rollback
       source.pa += cost;
       if (source.turnActionUses && source.turnActionUses[actionType] > 0) {
         source.turnActionUses[actionType] -= 1;
       }
       return supportRes;
     }
-    return { ok:true, actionType, support:true, from, role, target: resolvedTarget?.pos ? { role: resolvedTarget.role, pos: resolvedTarget.pos } : null, extra: supportRes };
+    return {
+      ok:true,
+      actionType,
+      support:true,
+      from,
+      role,
+      target: resolvedTarget?.pos ? { role: resolvedTarget.role, pos: resolvedTarget.pos } : null,
+      extra: supportRes
+    };
   }
 
+  // ===== ações ofensivas =====
   const multiplier = actionType === "skill" ? 1.2 : 2.5;
   let rawDmg = getEffectiveAtk(room, source) * multiplier;
   let ignoreDef = false;
   let l15SkillBonus = 1;
 
+  // L-15 skill especial: dano base = atk (sem mult) e buff extra
   if (actionType === "skill" && source.dbId === "L-15") {
     rawDmg = getEffectiveAtk(room, source);
     l15SkillBonus = 1.15;
   }
 
+  // effectType genéricos (se existirem)
   if (actionType === "skill") {
     if (source.effectType === "buff_self_atk") addStatusEffect(source, { id:`skill_atk_${source.instanceId}`, sourceDbId: source.dbId, type:"atk_flat", value:30, turnsLeft:1, filters:{}, meta:{} });
     if (source.effectType === "lifesteal") addStatusEffect(source, { id:`skill_atk_${source.instanceId}`, sourceDbId: source.dbId, type:"atk_flat", value:20, turnsLeft:1, filters:{}, meta:{} });
@@ -1059,7 +1092,13 @@ function applyAction(room, role, from, target, actionType){
   }
 
   const enemyRole = enemyRoleOf(role);
-  if (!resolvedTarget || resolvedTarget.role !== enemyRole) return { ok:false, reason:"need_enemy_target" };
+  if (!resolvedTarget || resolvedTarget.role !== enemyRole || !resolvedTarget.pos || !resolvedTarget.card) {
+    // ações ofensivas precisam alvo inimigo no campo
+    // rollback do PA/cooldown
+    source.pa += cost;
+    if (source.turnActionUses && source.turnActionUses[actionType] > 0) source.turnActionUses[actionType] -= 1;
+    return { ok:false, reason:"need_enemy_target" };
+  }
 
   const targetDef = ignoreDef ? 0 : getEffectiveDef(room, resolvedTarget.card);
   const rawDelta = Math.floor(rawDmg - targetDef);
@@ -1086,6 +1125,7 @@ function applyAction(room, role, from, target, actionType){
     finalDmg = 0;
   }
 
+  // efeitos pós-dano específicos
   if (actionType === "skill" && source.dbId === "L-5") {
     addStatusEffect(resolvedTarget.card, { id:`l5_mark_${source.instanceId}`, sourceDbId: source.dbId, type:"l5_mark", value:0, turnsLeft:2, filters:{}, meta:{ sourceOwner: source.owner } });
     addStatusEffect(resolvedTarget.card, { id:`l5_vuln_${source.instanceId}`, sourceDbId: source.dbId, type:"damage_taken_mult", value:1.2, turnsLeft:2, filters:{}, meta:{} });
@@ -1100,6 +1140,7 @@ function applyAction(room, role, from, target, actionType){
     addStatusEffect(resolvedTarget.card, { id:`l15_runa_${resolvedTarget.card.instanceId}`, sourceDbId: source.dbId, type:"l15_runa", value:1.15, turnsLeft:3, filters:{}, meta:{} });
   }
 
+  // L-12 spread em infectados
   if (source.dbId === "L-12" && dmgToTarget > 0 && getActiveEffects(room, resolvedTarget.card, "infection").length > 0) {
     const enemyEntity = room.state[resolvedTarget.role];
     const infected = ["front","back"].flatMap(line => enemyEntity[line].filter(card => card && getActiveEffects(room, card, "infection").length > 0));
@@ -1113,6 +1154,7 @@ function applyAction(room, role, from, target, actionType){
     }
   }
 
+  // L-9 spill para backrow
   if (source.dbId === "L-9" && getActiveEffects(room, source, "l9_spill").length > 0 && dmgToTarget > 0) {
     if (resolvedTarget.pos.line === "front") {
       const enemyEntity = room.state[resolvedTarget.role];
@@ -1127,6 +1169,7 @@ function applyAction(room, role, from, target, actionType){
     }
   }
 
+  // L-9 ult splash global
   if (source.dbId === "L-9" && actionType === "ult" && dmgToTarget > 0) {
     const enemyEntity = room.state[resolvedTarget.role];
     const splashDmg = Math.floor(dmgToTarget * 0.75);
@@ -1141,15 +1184,18 @@ function applyAction(room, role, from, target, actionType){
     }
   }
 
+  // L-10 shield stacking enquanto skill ativa
   if (source.dbId === "L-10" && getActiveEffects(room, source, "l10_skill_active").length > 0) {
     addStatusEffect(source, { id:`l10_skill_shield_${source.instanceId}_${Date.now()}`, sourceDbId: source.dbId, type:"shield", value:20, turnsLeft:3, filters:{}, meta:{} });
   }
 
+  // ult lifesteal genérico
   if (actionType === "ult" && source.effectType === "lifesteal" && dmgToTarget > 0) {
     const heal = Math.floor(dmgToTarget * 0.5);
     source.hp = Math.min(source.maxHp ?? source.hp, (source.hp ?? 0) + heal);
   }
 
+  // ult splash genérico
   if (actionType === "ult" && source.effectType === "splash" && dmgToTarget > 0) {
     const enemyEntity = room.state[resolvedTarget.role];
     const splashDmg = Math.floor(dmgToTarget * 0.5);
@@ -1164,6 +1210,7 @@ function applyAction(room, role, from, target, actionType){
     }
   }
 
+  // ult pierce_and_party_heal
   if (actionType === "ult" && source.effectType === "pierce_and_party_heal" && dmgToTarget > 0) {
     const healAmount = Math.floor(dmgToTarget * 0.5);
     const allies = room.state[source.owner];
@@ -1172,6 +1219,7 @@ function applyAction(room, role, from, target, actionType){
     }
   }
 
+  // L-5 mark heal
   if (resolvedTarget.card) {
     const l5Marks = getActiveEffects(room, resolvedTarget.card, "l5_mark");
     const hasL5 = l5Marks.some(mark => mark.meta?.sourceOwner === source.owner);
@@ -1181,6 +1229,7 @@ function applyAction(room, role, from, target, actionType){
     }
   }
 
+  // PA steal
   if (resolvedTarget.card && dmgToTarget > 0) {
     handlePaSteal(room, source, resolvedTarget.card);
   }
@@ -1207,7 +1256,6 @@ function applyHab(room, role, from, target){
 function applyUlt(room, role, from, target){
   return applyAction(room, role, from, target, "ult");
 }
-
 
 function redactStateForRole(fullState, viewerRole) {
   const enemyRole = viewerRole === "p1" ? "p2" : "p1";
@@ -1291,6 +1339,7 @@ function initGameForRoom(room) {
     round: 1,
     turnCounter: 1,
     drawnThisTurn: { p1: false, p2: false },
+    winner: null,
   };
   room.state = createNewGameState();
 
@@ -1461,7 +1510,6 @@ io.on("connection", (socket) => {
       return;
     }
 
-
     if (intent.type === "useHab") {
       if (room.match.activeRole !== role) return;
 
@@ -1491,7 +1539,6 @@ io.on("connection", (socket) => {
       return;
     }
 
-    
     if (intent.type === "useUlt") {
       if (room.match.activeRole !== role) return;
 
