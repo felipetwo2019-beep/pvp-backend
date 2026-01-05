@@ -97,7 +97,6 @@
   .grave-list{ margin-top: 10px; max-height: 280px; overflow:auto; border: 1px solid #333; border-radius: 12px; padding: 10px; background:#151515; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .grave-item{ background:#202020; border:1px solid #2f2f2f; border-radius: 12px; padding: 8px; cursor:pointer; user-select:none; }
 
-
   /* === FX Layer === */
   #fxLayer{position:fixed;inset:0;pointer-events:none;z-index:9999;}
   .fx-sword{position:fixed;font-size:28px;filter:drop-shadow(0 0 10px rgba(0,255,255,.55));transform:translate(-50%,-50%);will-change:transform;}
@@ -110,7 +109,6 @@
   .fx-shake{animation:fxShake .18s ease-in-out 0s 2;}
   @keyframes fxShake{0%{transform:translateX(0)}25%{transform:translateX(-3px)}50%{transform:translateX(3px)}75%{transform:translateX(-2px)}100%{transform:translateX(0)}}
 
-
   /* HP pill shake */
   .hpShake{ animation: hpShake .28s ease-in-out 1; }
   @keyframes hpShake{
@@ -121,7 +119,6 @@
     80%{ transform: translateX(2px); }
     100%{ transform: translateX(0); }
   }
-
 </style>
 </head>
 <body>
@@ -364,7 +361,6 @@ function canTargetBackRow(attacker, enemyRole){
   }
   return false;
 }
-
 
 function starsText(n){
   const s = Number.isInteger(n) ? n : 1;
@@ -727,26 +723,15 @@ socket.on("game:sync", ({ roomId, role, activeRole, round, state }) => {
   gameState = state;
   if (graveView) renderGraveList(graveView.role);
   renderGame();
-
-
-
 });
 
 socket.on("game:event", (ev) => {
   if (!ev || !ev.type) return;
   // IMPORTANT: server emits events BEFORE sync, so DOM still reflects pre-sync state
-  if (ev.type === "attack") {
-    requestAnimationFrame(() => runAttackFX(ev));
-  }
-  if (ev.type === "ult") {
-    requestAnimationFrame(() => runUltFX(ev));
-  }
-  if (ev.type === "death") {
-    requestAnimationFrame(() => runDeathFX(ev));
-  }
-  if (ev.type === "hab") {
-    requestAnimationFrame(() => runHabFX(ev));
-  }
+  if (ev.type === "attack") requestAnimationFrame(() => runAttackFX(ev));
+  if (ev.type === "ult") requestAnimationFrame(() => runUltFX(ev));
+  if (ev.type === "death") requestAnimationFrame(() => runDeathFX(ev));
+  if (ev.type === "hab") requestAnimationFrame(() => runHabFX(ev));
   if (ev.type === "gameOver") {
     const msg = ev.winner === ROLE ? "Você venceu!" : "Você perdeu!";
     setTimeout(() => alert(msg), 120);
@@ -774,7 +759,6 @@ function clamp01(t){ return Math.max(0, Math.min(1, t)); }
 function shakePill(el){
   if(!el) return;
   el.classList.remove("hpShake");
-  // restart animation
   void el.offsetWidth;
   el.classList.add("hpShake");
   setTimeout(()=>el.classList.remove("hpShake"), 320);
@@ -843,16 +827,12 @@ function spawnFloatNumber(x,y, text){
 
 function runHabFX(ev){
   if (!ROLE) return;
-  if (ev.dmgToTarget || ev.dmgToAttacker) {
-    runAttackFX(ev);
-    return;
-  }
+  if (ev.dmgToTarget || ev.dmgToAttacker) { runAttackFX(ev); return; }
   const from = ev.from;
   const fromSlot = getSlotEl(ev.role, from.line, from.index);
   if (!fromSlot) return;
   const a = rectCenter(fromSlot);
 
-  // small pop on caster
   spawnEmbers(a.x, a.y, 10);
 
   if (ev.kind === "HEAL_ALLY" && ev.target && ev.target.pos){
@@ -871,16 +851,12 @@ function runHabFX(ev){
 
 function runUltFX(ev){
   if (!ROLE) return;
-  if (ev.dmgToTarget || ev.dmgToAttacker) {
-    runAttackFX(ev);
-    return;
-  }
+  if (ev.dmgToTarget || ev.dmgToAttacker) { runAttackFX(ev); return; }
   const from = ev.from;
   const fromSlot = getSlotEl(ev.role, from.line, from.index);
   if (!fromSlot) return;
   const a = rectCenter(fromSlot);
 
-  // big pop on caster
   spawnEmbers(a.x, a.y, 18);
 
   if (ev.kind === "HEAL_ALLY_ULT" && ev.target && ev.target.pos){
@@ -903,7 +879,6 @@ function runUltFX(ev){
   }
 }
 
-
 function runAttackFX(ev){
   if (!ROLE) return;
   const attackerRole = ev.role;
@@ -918,7 +893,6 @@ function runAttackFX(ev){
   const a = rectCenter(fromSlot);
   const b = rectCenter(toSlot);
 
-  // Sword element
   const sword=document.createElement('div');
   sword.className='fx-sword';
   sword.textContent = swordSVG();
@@ -930,7 +904,6 @@ function runAttackFX(ev){
   const baseRot = angle+45;
   sword.style.transform = `translate(-50%,-50%) rotate(${baseRot}deg)`;
 
-  // Animate flight (slight arc)
   const mx = (a.x+b.x)/2 + (Math.random()*2-1)*20;
   const my = (a.y+b.y)/2 - 30;
   const dur = 260;
@@ -941,7 +914,6 @@ function runAttackFX(ev){
     { left: b.x+'px', top: b.y+'px', offset:1 }
   ], { duration: dur, easing:'cubic-bezier(.16,.9,.2,1)', fill:'forwards' });
 
-  // Trail embers along the way
   const t0 = performance.now();
   const trailTick = () => {
     const t = clamp01((performance.now()-t0)/dur);
@@ -953,15 +925,12 @@ function runAttackFX(ev){
   requestAnimationFrame(trailTick);
 
   flight.onfinish = () => {
-    // Hit spin
     sword.animate([
       { transform:`translate(-50%,-50%) rotate(${baseRot}deg)` },
       { transform:`translate(-50%,-50%) rotate(${baseRot+220}deg)` }
     ],{ duration:220, easing:'cubic-bezier(.16,.9,.2,1)', fill:'forwards' });
     spawnEmbers(b.x, b.y, 12);
 
-    // Damage numbers: on target, and possibly reflected on attacker
-    // dmgToTarget: damage applied to target card (not player)
     if (ev.dmgToTarget && ev.dmgToTarget>0) {
       spawnDamageNumber(b.x, b.y, ev.dmgToTarget, { isReflected:false });
       animateSlotHit(toSlot);
@@ -972,7 +941,6 @@ function runAttackFX(ev){
       animateSlotHit(fromSlot);
     }
 
-    // Player HP damage numbers (server-authoritative)
     try{
       const myPill = (typeof infoMyHP!=='undefined') ? infoMyHP : document.getElementById('infoMyHP');
       const enemyPill = (typeof infoEnemyHP!=='undefined') ? infoEnemyHP : document.getElementById('infoEnemyHP');
@@ -993,7 +961,6 @@ function runAttackFX(ev){
 }
 
 function runDeathFX(ev){
-  // ev.deaths: [{role, from:{line,index}, card:{...}}]
   const deaths = Array.isArray(ev.deaths) ? ev.deaths : [];
   for (const d of deaths){
     const role = d.role;
@@ -1005,7 +972,6 @@ function runDeathFX(ev){
     const a = rectCenter(fromSlot);
     const b = rectCenter(grave);
 
-    // Try to clone the visible card for a clean "fly to grave" effect
     const cardEl = fromSlot.querySelector('.card') || fromSlot.firstElementChild;
     const ghost = document.createElement('div');
     ghost.className = 'fx-deathcard';
@@ -1022,7 +988,6 @@ function runDeathFX(ev){
       ghost.innerHTML = cardEl.outerHTML;
       ghost.style.filter = 'drop-shadow(0 0 14px rgba(255,120,0,.45))';
     } else {
-      // fallback: small tile
       ghost.style.width = '64px';
       ghost.style.height = '86px';
       ghost.style.borderRadius = '10px';
@@ -1031,7 +996,6 @@ function runDeathFX(ev){
     }
     fxLayer.appendChild(ghost);
 
-    // Small flame that rides on top of the moving card + leaves a trail
     const burn = document.createElement('div');
     burn.className = 'fx-burn';
     burn.style.left = a.x + 'px';
@@ -1046,7 +1010,6 @@ function runDeathFX(ev){
     const tick = (now)=>{
       const t = clamp01((now - t0) / dur);
 
-      // Smooth curve
       const mx = (a.x + b.x) / 2;
       const my = Math.min(a.y, b.y) - 70;
 
@@ -1063,7 +1026,6 @@ function runDeathFX(ev){
       burn.style.transform = `translate(-50%,-50%) scale(${0.95 + Math.sin(t*10)*0.07})`;
       burn.style.opacity = String(0.9 - t*0.25);
 
-      // Trail (lightweight): drop a small dot every ~60ms
       if (now - lastTrail > 60){
         lastTrail = now;
         const tr = document.createElement('div');
@@ -1080,7 +1042,6 @@ function runDeathFX(ev){
 
       if (t < 1) requestAnimationFrame(tick);
       else {
-        // small pop at grave
         burn.animate([
           { transform:'translate(-50%,-50%) scale(1)', opacity:0.6 },
           { transform:'translate(-50%,-50%) scale(1.5)', opacity:0 }
@@ -1107,7 +1068,6 @@ function renderBoard(boardEl, state, opts){
     if (line === "back") {
       const deckCount = (typeof state.deckCount === "number") ? state.deckCount : 0;
       side.innerText = `Deck\n(${deckCount})`;
-      // compra manual desativada (a compra é automática)
     } else {
       side.innerText = `Cemit.`;
       side.classList.add("clickable");
@@ -1164,7 +1124,7 @@ function renderBoard(boardEl, state, opts){
           }
         }
 
-if (mode?.type === "attack" && roleName !== ROLE && isEnemy) {
+        if (mode?.type === "attack" && roleName !== ROLE && isEnemy) {
           if (!card) return;
           socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "attack", from: mode.from, to: { line, index: actualI } } });
           mode = null;
@@ -1175,9 +1135,6 @@ if (mode?.type === "attack" && roleName !== ROLE && isEnemy) {
       };
 
       if (card){
-        const pa = document.createElement("div");
-        pa.className = "card pa";
-        // (reusing pa style from previous; simpler here)
         const paBadge = document.createElement("div");
         paBadge.style.position = "absolute";
         paBadge.style.top = "4px";
@@ -1421,7 +1378,6 @@ function renderModal(){
         updateTargetHighlights();
         return;
       }
-      // no target needed
       socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useHab", from: { line: modalCard.line, index: modalCard.index } } });
       closeModal(false);
     }));
@@ -1440,6 +1396,7 @@ function renderModal(){
 
   if (modalCard.zone === "field") {
     const isMine = (modalCard.role === ROLE);
+
     const btnAtk = mkBtn("Ataque","primary",()=>{
       if (!isMine) return alert("Você só comanda suas cartas.");
       if (ACTIVE !== ROLE) return alert("Não é sua vez");
@@ -1449,19 +1406,29 @@ function renderModal(){
       closeModal(false);
       updateTargetHighlights();
     });
-        modalActionsEl.appendChild(btnAtk);
+    modalActionsEl.appendChild(btnAtk);
 
-    const cur = c.pa ?? 0;
-    const ultCost = 5;
+    // Ultimate (conflito resolvido)
     if (isMine) {
       const btnUlt = mkBtn("Ultimate","primary",()=>{
-        if (btnUlt.disabled) return;
-        const from = { line: modalCard.line, index: modalCard.index };
-        // TODO: add target selection when ultimate requires it.
-        socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useUlt", from } });
+        if (ACTIVE !== ROLE) return alert("Não é sua vez");
+        const cur = c.pa ?? 0;
+        const ultCost = 5;
+        if (cur < ultCost) return alert(`PA insuficiente (Ultimate custa ${ultCost}).`);
+        const needs = getActionTargetMode(c, "ult");
+        if (needs === "ally" || needs === "enemy" || needs === "ally_or_enemy") {
+          mode = { type:"ult", from: { line: modalCard.line, index: modalCard.index }, needs, actionType: "ult" };
+          closeModal(false);
+          updateTargetHighlights();
+          return;
+        }
+        socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useUlt", from: { line: modalCard.line, index: modalCard.index } } });
         closeModal(false);
       });
-      const canUseUlt = ACTIVE === ROLE && cur >= ultCost;
+
+      const cur = c.pa ?? 0;
+      const ultCost = 5;
+      const canUseUlt = (ACTIVE === ROLE) && (cur >= ultCost);
       if (!canUseUlt) {
         btnUlt.disabled = true;
         btnUlt.classList.add("disabled");
@@ -1470,13 +1437,8 @@ function renderModal(){
     }
   }
 
-  if (modalCard.zone === "model") {
-    modalActionsEl.innerHTML = "";
-  }
-
-  if (modalCard.zone === "grave") {
-    modalActionsEl.innerHTML = "";
-  }
+  if (modalCard.zone === "model") modalActionsEl.innerHTML = "";
+  if (modalCard.zone === "grave") modalActionsEl.innerHTML = "";
 }
 
 /* Attack targeting highlight */
