@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Card Game PvP</title>
 <style>
-  body { background:#0f0f10; color:#eee; font-family: Arial, sans-serif; margin:0; }
-  header { padding: 14px 16px; border-bottom: 1px solid #242424; display:flex; justify-content:space-between; align-items:center; }
+  body { background:#0f0f10; color:#eee; font-family: Arial, sans-serif; margin:0; height:100vh; overflow:hidden; }
+  header { display: none; }
   header .brand{ font-weight: 900; letter-spacing: .5px; }
   header .user{ font-size: 13px; opacity: .9; }
-  main { padding: 16px; max-width: 1100px; margin: 0 auto; }
+  main { padding: 16px; max-width: min(1400px, calc(100vw - 24px)); margin: 0 auto; height: calc(100vh - 62px); overflow: hidden; }
 
   .screen { display:none; }
   .screen.active { display:block; }
@@ -30,8 +30,78 @@
   .msg.error{ color:#ff6b6b; }
   .msg.ok{ color:#80ffb4; }
 
-  .pillbar{ display:flex; gap: 8px; flex-wrap:wrap; margin: 10px 0; }
+  .pillbar{ display:none; }
   .pill{ background:#1b1b1f; border:1px solid #2c2c33; border-radius: 999px; padding: 6px 10px; font-size: 12px; opacity:.95; }
+
+/* Left HUD (player/opponent + turn/room + buttons) */
+.left-hud{
+  position: fixed;
+  left: 14px;
+  top: 74px;  /* below header */
+  bottom: 14px;
+  width: clamp(180px, 16vw, 240px);
+  display:flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  z-index: 50;
+  pointer-events: none;
+}
+.hud-block{ pointer-events: auto; }
+.hud-name{
+  font-weight: 900;
+  letter-spacing: .2px;
+  font-size: 12px;
+  margin: 0 0 6px 4px;
+  opacity: .95;
+  text-shadow: 0 1px 0 rgba(0,0,0,.35);
+}
+.hud-box{
+  background: rgba(16,16,18,.78);
+  border: 1px solid #2a2a2f;
+  border-radius: 14px;
+  padding: 10px 10px;
+  box-shadow: 0 10px 26px rgba(0,0,0,.28);
+  backdrop-filter: blur(10px);
+}
+.hud-stat{
+  display:flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 6px;
+  border-radius: 10px;
+}
+.hud-stat + .hud-stat{ margin-top: 6px; }
+.hud-stat b{ font-weight: 900; }
+.hud-mid{
+  display:flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+.hud-mid .pill{
+  background: rgba(22,22,24,.75);
+  border: 1px solid #2a2a2f;
+}
+.hud-btnrow{
+  display:flex;
+  gap: 8px;
+}
+.hud-btnrow button{
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* Game sizing so it never forces page scroll */
+#scrGame .cardbox{ height: 100%; padding-top: 100px; }
+#scrGame .gamewrap{ height: 100%; display:flex; gap: 12px; }
+#scrGame .actionlog{ flex: 0 0 clamp(240px, 22vw, 320px); height: 100%; }
+#scrGame .actionlog .loglist{ height: calc(100% - 76px); overflow:auto; }
+#scrGame .gamefield{ flex: 1; min-width: 0; height: 100%; overflow: hidden; display:flex; flex-direction: column; }
+#scrGame .hand-wrap{ flex: 1; min-height: 0; display:flex; flex-direction: column; }
+#scrGame .hand{ flex: 1; min-height: 0; overflow: auto; padding-bottom: 6px; }
 
   /* Deck builder list */
   .db-top{ display:flex; gap: 10px; flex-wrap: wrap; align-items:center; justify-content:space-between; }
@@ -51,12 +121,6 @@
   .board { display:grid; grid-template-columns: 70px repeat(5, 80px); grid-template-rows: repeat(2, 120px); gap: 6px; justify-content:center; }
   .slot { width: 80px; height:120px; border:2px dashed #555; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; position:relative; }
   .slot.targetable{ border-color: rgba(255, 214, 0, 0.85); box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.15); }
-  .slot.targetable.blinking{ animation: targetPulse 0.85s ease-in-out infinite; }
-  @keyframes targetPulse{
-    0%{ box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.15), 0 0 6px rgba(255,214,0,0.25); }
-    50%{ box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.35), 0 0 14px rgba(255,214,0,0.6); }
-    100%{ box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.15), 0 0 6px rgba(255,214,0,0.25); }
-  }
   .side-slot { width:70px; height:120px; border:2px solid #888; background:#222; font-size:12px; display:flex; align-items:center; justify-content:center; user-select:none; cursor: default; white-space: pre-line; position:relative; }
   .side-slot.clickable{ cursor:pointer; outline: 2px solid rgba(77,166,255,0.25); }
   .side-slot .count-badge{ position:absolute; bottom: 6px; right: 6px; background: rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.16); border-radius: 999px; padding: 2px 6px; font-size: 11px; }
@@ -68,12 +132,12 @@
   .card .stats{ display:flex; justify-content: space-between; font-size: 11px; background: rgba(255,255,255,0.28); border-radius: 8px; padding: 3px 6px; }
   .card .pa{ position:absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.55); color:#fff; border-radius: 999px; font-size: 11px; padding: 2px 6px; font-weight: 700; }
 
-  .hand-wrap { margin: 12px auto 0; max-width: 900px; }
+  .hand-wrap { margin:20px;  margin-left: 100px; max-width: 900px; }
   .hand { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
   .hand-card { width:92px; height:122px; border:2px solid #666; border-radius:12px; background:#222; cursor:pointer; user-select:none; display:flex; flex-direction: column; justify-content: space-between; padding:6px; box-sizing:border-box; position:relative; }
   .hand-card .hc-stars{ position:absolute; top: 4px; right: 4px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; font-size: 11px; padding: 2px 6px; }
   .enemy-area { position: relative; display: inline-block; }
-  .enemy-hand-wrap { position: absolute; top: -8px; right: -8px; display: flex; gap: 6px; align-items: center; justify-content: flex-end; pointer-events: none; }
+  .enemy-hand-wrap { position: absolute; top: -90px; right: 85px; display: flex; gap: 6px; align-items: center; justify-content: flex-end; pointer-events: none; }
   .enemy-hand-card { width: 45px; height: 60px; border: 2px solid #555; border-radius: 8px; background: linear-gradient(135deg, #2a2a2a, #1a1a1a); }
   .enemy-hand-count { font-size: 12px; opacity: 0.8; margin-left: 6px; }
 
@@ -97,6 +161,7 @@
   .grave-list{ margin-top: 10px; max-height: 280px; overflow:auto; border: 1px solid #333; border-radius: 12px; padding: 10px; background:#151515; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .grave-item{ background:#202020; border:1px solid #2f2f2f; border-radius: 12px; padding: 8px; cursor:pointer; user-select:none; }
 
+
   /* === FX Layer === */
   #fxLayer{position:fixed;inset:0;pointer-events:none;z-index:9999;}
   .fx-sword{position:fixed;font-size:28px;filter:drop-shadow(0 0 10px rgba(0,255,255,.55));transform:translate(-50%,-50%);will-change:transform;}
@@ -109,6 +174,7 @@
   .fx-shake{animation:fxShake .18s ease-in-out 0s 2;}
   @keyframes fxShake{0%{transform:translateX(0)}25%{transform:translateX(-3px)}50%{transform:translateX(3px)}75%{transform:translateX(-2px)}100%{transform:translateX(0)}}
 
+
   /* HP pill shake */
   .hpShake{ animation: hpShake .28s ease-in-out 1; }
   @keyframes hpShake{
@@ -119,6 +185,69 @@
     80%{ transform: translateX(2px); }
     100%{ transform: translateX(0); }
   }
+
+  /* === Card Art (center image) === */
+  .card .art,
+  .hand-card .art,
+  .zoom-card .art{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    margin: 6px 0;
+    width: 100%;
+  }
+  .card .art img{
+    width: 100%;
+    height: 44px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid rgba(0,0,0,0.18);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+    opacity: .95;
+  }
+  .hand-card .art img{
+    width: 100%;
+    height: 56px;
+    object-fit: cover;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.25);
+    opacity: .95;
+  }
+  .zoom-card .art img{
+    width: 100%;
+    height: 118px;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid rgba(0,0,0,0.15);
+    box-shadow: 0 14px 34px rgba(0,0,0,0.28);
+    opacity: .98;
+  }
+  /* subtle vignette for readability */
+  .card .art::after,
+  .hand-card .art::after,
+  .zoom-card .art::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+  }
+
+  .card .art,
+  .hand-card .art,
+  .zoom-card .art{ position: relative; }
+  .card .art::after,
+  .hand-card .art::after,
+  .zoom-card .art::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    border-radius: inherit;
+    background: radial-gradient(circle at 50% 45%, rgba(0,0,0,0) 45%, rgba(0,0,0,0.32) 100%);
+    mix-blend-mode: multiply;
+  }
+
 </style>
 </head>
 <body>
@@ -226,19 +355,45 @@
 
   <!-- GAME -->
   <section id="scrGame" class="screen">
-    <div class="pillbar">
-      <div class="pill" id="infoRound">Turno: -</div>
-      <div class="pill" id="infoActive">Vez: -</div>
-      <div class="pill" id="infoPI">PI: -</div>
-      <div class="pill" id="infoMyHP">Você: HP - / DEF -</div>
-      <div class="pill" id="infoEnemyHP">Oponente: HP - / DEF -</div>
-      <div class="pill" id="infoRoom">Sala: -</div>
-      <div class="pill" id="infoRole">Role: -</div>
-    </div>
 
-    <div class="cardbox">
+<div class="left-hud" aria-label="HUD de Jogadores">
+  <div class="hud-block">
+    <div class="hud-name" id="hudEnemyName">Oponente</div>
+    <div class="hud-box">
+      <div class="hud-stat"><span>Vida</span><b id="hudEnemyHP">-</b></div>
+      <div class="hud-stat"><span>Defesa</span><b id="hudEnemyDEF">-</b></div>
+      <div class="hud-stat"><span>PI</span><b id="hudEnemyPI">-</b></div>
+    </div>
+  </div>
+
+  <div class="hud-block hud-mid">
+    <div class="pill" id="infoRound">Turno: -</div>
+    <div class="pill" id="infoRoom">Sala: -</div>
+    <div class="hud-btnrow">
+      <button class="primary" id="btnEndTurn">Passar Vez</button>
+      <button class="ghost" id="btnExitToLobby">Sair pro Lobby</button>
+    </div>
+  </div>
+
+  <div class="hud-block">
+    <div class="hud-name" id="hudMyName">Você</div>
+    <div class="hud-box">
+      <div class="hud-stat"><span>Vida</span><b id="hudMyHP">-</b></div>
+      <div class="hud-stat"><span>Defesa</span><b id="hudMyDEF">-</b></div>
+      <div class="hud-stat"><span>PI</span><b id="hudMyPI">-</b></div>
+    </div>
+  </div>
+
+  <div style="display:none" aria-hidden="true">
+    <div id="infoActive"></div>
+    <div id="infoPI"></div>
+    <div id="infoMyHP"></div>
+    <div id="infoEnemyHP"></div>
+    <div id="infoRole"></div>
+  </div>
+</div>
+<div class="cardbox">
       <div style="text-align:center;">
-        <h3 style="margin:0 0 10px;">Campo do Oponente</h3>
         <div class="enemy-area">
           <div id="enemyHand" class="enemy-hand-wrap"></div>
           <div class="board" id="enemyBoard"></div>
@@ -248,22 +403,12 @@
       <hr style="border:none;border-top:1px solid #25252a; margin: 14px 0;">
 
       <div style="text-align:center;">
-        <h3 style="margin:0 0 10px;">Seu Campo</h3>
         <div class="board" id="myBoard"></div>
         <div class="hand-wrap">
-          <div style="margin: 8px 0; opacity:.9;">Sua Mão</div>
           <div id="myHand" class="hand"></div>
-          <div class="hint">
-            Clique em carta da mão para invocar. Clique na carta do campo para atacar.<br>
-            Clique no <b>[CEMIT]</b> para ver o cemitério. ESC fecha.
-          </div>
         </div>
 
-        <div style="margin-top: 10px;">
-          <button class="primary" id="btnEndTurn">Passar Vez</button>
-          <button class="ghost" id="btnExitToLobby">Sair pro Lobby</button>
         </div>
-      </div>
     </div>
   </section>
 
@@ -326,6 +471,42 @@ function setHeader(){
 }
 setHeader();
 
+// =============================
+//  Persistência simples de partida (F5 / refresh)
+//  - Salva a sala atual no localStorage enquanto estiver no campo de batalha
+//  - Ao recarregar, tenta reentrar na mesma sala e volta pro jogo
+// =============================
+const RESUME_KEY = "resume_room";
+
+function saveResumeRoom(){
+  if (ROOM_ID) localStorage.setItem(RESUME_KEY, String(ROOM_ID));
+}
+function clearResumeRoom(){
+  localStorage.removeItem(RESUME_KEY);
+}
+function tryResumeMatch(){
+  const roomId = localStorage.getItem(RESUME_KEY);
+  if (!roomId || !TOKEN) return false;
+
+  ROOM_ID = roomId;
+
+  // Mostra o campo de batalha imediatamente e pede re-join ao servidor
+  showScreen(scrGame);
+  const ir = document.getElementById("infoRoom");
+  const tr = document.getElementById("infoRound");
+  if (ir) ir.textContent = `Sala: ${ROOM_ID} (reconectando...)`;
+  if (tr) tr.textContent = "Turno: -";
+
+  socket.emit("rooms:join", { roomId: ROOM_ID, token: TOKEN, rejoin: true });
+  return true;
+}
+
+// Ao recarregar/fechar: se estiver no jogo, mantém a sala para reentrar
+window.addEventListener("beforeunload", () => {
+  if (ROOM_ID && scrGame.classList.contains("active")) saveResumeRoom();
+  else clearResumeRoom();
+});
+
 function otherRole(role){ return role === "p1" ? "p2" : "p1"; }
 function typeIcon(type){
   if(type === "Melee") return "⚔️";
@@ -336,36 +517,77 @@ function typeIcon(type){
   return "❓";
 }
 
-function getActionTargetMode(card, actionType){
-  if (actionType === "skill" || actionType === "ult") return "enemy";
-  return "none";
+function abilityKindForCard(card){
+  const t = String(card?.type||"").toUpperCase();
+  if (t === "SUPPORT") return "HEAL_ALLY";
+  if (t === "UTILITY") return "GAIN_PA_SELF";
+  return "BUFF_ATK_SELF";
 }
-
-function shouldBlinkTargets(mode){
-  return mode && (mode.type === "hab" || mode.type === "ult") && mode.needs === "enemy";
-}
-
-function hasTeamEffect(role, type){
-  const effects = gameState?.[role]?.teamEffects || [];
-  return effects.some(e => e && e.type === type);
-}
-
-function canTargetBackRow(attacker, enemyRole){
-  if (!attacker) return false;
-  const t = attacker.type;
-  if (t === "Ranged" || t === "Support") return true;
-  if (t === "Melee" || t === "Tank") {
-    if (hasTeamEffect(attacker.owner || ROLE, "l18_backrow_access")) return true;
-    const opp = gameState?.[enemyRole];
-    return !(opp?.front || []).some(c => c);
-  }
-  return false;
-}
-
 function starsText(n){
   const s = Number.isInteger(n) ? n : 1;
   return "★".repeat(Math.max(0, s));
 }
+
+function hashStr(str){
+  // FNV-1a 32-bit
+  let h = 0x811c9dc5;
+  for (let i=0;i<str.length;i++){
+    h ^= str.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+function artSvgDataUrl(seed){
+  const s = String(seed ?? "seed");
+  const h = hashStr(s);
+  const hue1 = h % 360;
+  const hue2 = (hue1 + 110 + (h % 40)) % 360;
+  const hue3 = (hue2 + 90 + (h % 30)) % 360;
+  const c1 = `hsl(${hue1} 82% 58%)`;
+  const c2 = `hsl(${hue2} 86% 52%)`;
+  const c3 = `hsl(${hue3} 78% 60%)`;
+  const r1 = 26 + (h % 24);
+  const r2 = 18 + ((h>>8) % 22);
+  const r3 = 14 + ((h>>16) % 18);
+  const x1 = 20 + (h % 60);
+  const y1 = 18 + ((h>>4) % 50);
+  const x2 = 40 + ((h>>10) % 60);
+  const y2 = 12 + ((h>>14) % 60);
+  const x3 = 30 + ((h>>18) % 60);
+  const y3 = 20 + ((h>>22) % 50);
+
+  const svg = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="${c1}"/>
+        <stop offset="0.6" stop-color="${c2}"/>
+        <stop offset="1" stop-color="${c3}"/>
+      </linearGradient>
+      <filter id="n" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="${h%999}" result="noise"/>
+        <feColorMatrix type="saturate" values="0.4"/>
+        <feComposite in="SourceGraphic" in2="noise" operator="soft-light"/>
+      </filter>
+    </defs>
+
+    <rect width="320" height="200" fill="url(#g)"/>
+    <circle cx="${x1*3.2}" cy="${y1*2}" r="${r1*2}" fill="rgba(255,255,255,0.16)"/>
+    <circle cx="${x2*3.0}" cy="${y2*2}" r="${r2*2}" fill="rgba(0,0,0,0.16)"/>
+    <circle cx="${x3*3.1}" cy="${y3*2}" r="${r3*2}" fill="rgba(255,255,255,0.10)"/>
+    <path d="M0,150 C80,110 140,190 220,145 C270,120 295,140 320,120 L320,200 L0,200 Z"
+          fill="rgba(0,0,0,0.18)"/>
+    <g filter="url(#n)"><rect width="320" height="200" fill="rgba(255,255,255,0.05)"/></g>
+  </svg>`;
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg.trim());
+}
+function cardArtUrl(card){
+  // Use card img if provided by the server; otherwise generate deterministic "random" art.
+  if (card && card.img) return card.img;
+  const seed = (card && (card.dbId || card.id || card.name || card.tribe)) || Math.random().toString(36).slice(2);
+  return artSvgDataUrl(seed);
+}
+
 function api(path, method="GET", body=null){
   const headers = { "Content-Type": "application/json" };
   if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
@@ -427,6 +649,7 @@ document.getElementById("btnLogout").onclick = () => {
   localStorage.removeItem("username");
   MY_DECK = [];
   setHeader();
+  clearResumeRoom();
   showScreen(scrAuth);
 };
 
@@ -438,6 +661,7 @@ async function bootAfterAuth(){
   const dr = await api("/api/deck");
   MY_DECK = dr.ok ? dr.deck : [];
   renderDeckBuilder();
+  if (tryResumeMatch()) return;
   showScreen(scrDeck);
 }
 
@@ -456,6 +680,7 @@ async function bootAfterAuth(){
       const dr = await api("/api/deck");
       MY_DECK = dr.ok ? dr.deck : [];
       renderDeckBuilder();
+      if (tryResumeMatch()) return;
       showScreen(scrDeck);
       return;
     } else {
@@ -519,7 +744,8 @@ function validateLocalDeck(){
 function tileForCard(c, extraBtns){
   const el = document.createElement("div");
   el.className = "card-tile";
-  const img = c.img ? `<img src="${c.img}" alt="">` : "";
+  const imgSrc = cardArtUrl(c);
+  const img = imgSrc ? `<img src="${imgSrc}" alt="">` : "";
   el.innerHTML = `
     <div class="thumb">${img}</div>
     <div class="ctxt">
@@ -701,7 +927,11 @@ document.getElementById("btnEndTurn").onclick = () => {
 };
 
 document.getElementById("btnExitToLobby").onclick = () => {
-  // (room stays; user can refresh page to cleanly disconnect)
+  // Saída intencional: não tentar reconectar automaticamente
+  clearResumeRoom();
+  ROOM_ID = null;
+  ROLE = null;
+  gameState = null;
   showScreen(scrLobby);
 };
 
@@ -712,6 +942,7 @@ socket.on("match:start", ({ roomId, role, username }) => {
   mode = null;
   graveView = null;
   closeModal(true);
+  saveResumeRoom();
   showScreen(scrGame);
 });
 
@@ -721,6 +952,7 @@ socket.on("game:sync", ({ roomId, role, activeRole, round, state }) => {
   ACTIVE = activeRole;
   ROUND = round;
   gameState = state;
+  saveResumeRoom();
   if (graveView) renderGraveList(graveView.role);
   renderGame();
 });
@@ -728,13 +960,14 @@ socket.on("game:sync", ({ roomId, role, activeRole, round, state }) => {
 socket.on("game:event", (ev) => {
   if (!ev || !ev.type) return;
   // IMPORTANT: server emits events BEFORE sync, so DOM still reflects pre-sync state
-  if (ev.type === "attack") requestAnimationFrame(() => runAttackFX(ev));
-  if (ev.type === "ult") requestAnimationFrame(() => runUltFX(ev));
-  if (ev.type === "death") requestAnimationFrame(() => runDeathFX(ev));
-  if (ev.type === "hab") requestAnimationFrame(() => runHabFX(ev));
-  if (ev.type === "gameOver") {
-    const msg = ev.winner === ROLE ? "Você venceu!" : "Você perdeu!";
-    setTimeout(() => alert(msg), 120);
+  if (ev.type === "attack") {
+    requestAnimationFrame(() => runAttackFX(ev));
+  }
+  if (ev.type === "death") {
+    requestAnimationFrame(() => runDeathFX(ev));
+  }
+  if (ev.type === "hab") {
+    requestAnimationFrame(() => runHabFX(ev));
   }
 });
 
@@ -759,6 +992,7 @@ function clamp01(t){ return Math.max(0, Math.min(1, t)); }
 function shakePill(el){
   if(!el) return;
   el.classList.remove("hpShake");
+  // restart animation
   void el.offsetWidth;
   el.classList.add("hpShake");
   setTimeout(()=>el.classList.remove("hpShake"), 320);
@@ -801,14 +1035,6 @@ function spawnDamageNumber(x,y, value, { isReflected=false }={}){
   setTimeout(()=>d.remove(), dur+50);
 }
 
-function animateSlotHit(slot){
-  if (!slot) return;
-  slot.classList.remove("fx-shake");
-  void slot.offsetWidth;
-  slot.classList.add("fx-shake");
-  setTimeout(()=>slot.classList.remove("fx-shake"), 320);
-}
-
 function spawnFloatNumber(x,y, text){
   const d=document.createElement('div');
   d.className='fx-dmg';
@@ -827,12 +1053,12 @@ function spawnFloatNumber(x,y, text){
 
 function runHabFX(ev){
   if (!ROLE) return;
-  if (ev.dmgToTarget || ev.dmgToAttacker) { runAttackFX(ev); return; }
   const from = ev.from;
   const fromSlot = getSlotEl(ev.role, from.line, from.index);
   if (!fromSlot) return;
   const a = rectCenter(fromSlot);
 
+  // small pop on caster
   spawnEmbers(a.x, a.y, 10);
 
   if (ev.kind === "HEAL_ALLY" && ev.target && ev.target.pos){
@@ -849,42 +1075,12 @@ function runHabFX(ev){
   }
 }
 
-function runUltFX(ev){
-  if (!ROLE) return;
-  if (ev.dmgToTarget || ev.dmgToAttacker) { runAttackFX(ev); return; }
-  const from = ev.from;
-  const fromSlot = getSlotEl(ev.role, from.line, from.index);
-  if (!fromSlot) return;
-  const a = rectCenter(fromSlot);
-
-  spawnEmbers(a.x, a.y, 18);
-
-  if (ev.kind === "HEAL_ALLY_ULT" && ev.target && ev.target.pos){
-    const tslot = getSlotEl(ev.target.role, ev.target.pos.line, ev.target.pos.index);
-    if (tslot){
-      const b = rectCenter(tslot);
-      spawnEmbers(b.x, b.y, 18);
-      if (ev.delta && ev.delta>0) spawnFloatNumber(b.x, b.y, `+${ev.delta}`);
-    }
-    return;
-  }
-
-  if (ev.target && ev.target.pos){
-    const tslot = getSlotEl(ev.target.role, ev.target.pos.line, ev.target.pos.index);
-    if (tslot){
-      const b = rectCenter(tslot);
-      spawnEmbers(b.x, b.y, 22);
-      if (ev.dmg && ev.dmg>0) spawnDamageNumber(b.x, b.y, ev.dmg, { isReflected:false });
-    }
-  }
-}
-
 function runAttackFX(ev){
   if (!ROLE) return;
   const attackerRole = ev.role;
+  const defenderRole = otherRole(attackerRole);
   const from = ev.from;
-  const to = ev.to || ev.target?.pos;
-  const defenderRole = ev.target?.role || otherRole(attackerRole);
+  const to = ev.to;
 
   const fromSlot = getSlotEl(attackerRole, from.line, from.index);
   const toSlot = getSlotEl(defenderRole, to.line, to.index);
@@ -893,6 +1089,7 @@ function runAttackFX(ev){
   const a = rectCenter(fromSlot);
   const b = rectCenter(toSlot);
 
+  // Sword element
   const sword=document.createElement('div');
   sword.className='fx-sword';
   sword.textContent = swordSVG();
@@ -904,6 +1101,7 @@ function runAttackFX(ev){
   const baseRot = angle+45;
   sword.style.transform = `translate(-50%,-50%) rotate(${baseRot}deg)`;
 
+  // Animate flight (slight arc)
   const mx = (a.x+b.x)/2 + (Math.random()*2-1)*20;
   const my = (a.y+b.y)/2 - 30;
   const dur = 260;
@@ -914,6 +1112,7 @@ function runAttackFX(ev){
     { left: b.x+'px', top: b.y+'px', offset:1 }
   ], { duration: dur, easing:'cubic-bezier(.16,.9,.2,1)', fill:'forwards' });
 
+  // Trail embers along the way
   const t0 = performance.now();
   const trailTick = () => {
     const t = clamp01((performance.now()-t0)/dur);
@@ -925,22 +1124,28 @@ function runAttackFX(ev){
   requestAnimationFrame(trailTick);
 
   flight.onfinish = () => {
+    // Hit spin
     sword.animate([
       { transform:`translate(-50%,-50%) rotate(${baseRot}deg)` },
       { transform:`translate(-50%,-50%) rotate(${baseRot+220}deg)` }
     ],{ duration:220, easing:'cubic-bezier(.16,.9,.2,1)', fill:'forwards' });
     spawnEmbers(b.x, b.y, 12);
 
-    if (ev.dmgToTarget && ev.dmgToTarget>0) {
-      spawnDamageNumber(b.x, b.y, ev.dmgToTarget, { isReflected:false });
-      animateSlotHit(toSlot);
-    }
+    // Damage numbers: on target, and possibly reflected on attacker
+    // dmgToTarget: damage applied to target card (not player)
+    if (ev.dmgToTarget && ev.dmgToTarget>0) spawnDamageNumber(b.x, b.y, ev.dmgToTarget, { isReflected:false });
     if (ev.dmgToAttacker && ev.dmgToAttacker>0) {
+      // show reflected damage on attacker card center
       const ac = rectCenter(fromSlot);
       spawnDamageNumber(ac.x, ac.y, ev.dmgToAttacker, { isReflected:true });
-      animateSlotHit(fromSlot);
+    }
+if (ev.dmgToAttacker && ev.dmgToAttacker>0) {
+      // show reflected damage on attacker card center
+      const ac = rectCenter(fromSlot);
+      spawnDamageNumber(ac.x, ac.y, ev.dmgToAttacker, { isReflected:true });
     }
 
+    // Player HP damage numbers (server-authoritative)
     try{
       const myPill = (typeof infoMyHP!=='undefined') ? infoMyHP : document.getElementById('infoMyHP');
       const enemyPill = (typeof infoEnemyHP!=='undefined') ? infoEnemyHP : document.getElementById('infoEnemyHP');
@@ -961,6 +1166,7 @@ function runAttackFX(ev){
 }
 
 function runDeathFX(ev){
+  // ev.deaths: [{role, from:{line,index}, card:{...}}]
   const deaths = Array.isArray(ev.deaths) ? ev.deaths : [];
   for (const d of deaths){
     const role = d.role;
@@ -972,6 +1178,7 @@ function runDeathFX(ev){
     const a = rectCenter(fromSlot);
     const b = rectCenter(grave);
 
+    // Try to clone the visible card for a clean "fly to grave" effect
     const cardEl = fromSlot.querySelector('.card') || fromSlot.firstElementChild;
     const ghost = document.createElement('div');
     ghost.className = 'fx-deathcard';
@@ -988,6 +1195,7 @@ function runDeathFX(ev){
       ghost.innerHTML = cardEl.outerHTML;
       ghost.style.filter = 'drop-shadow(0 0 14px rgba(255,120,0,.45))';
     } else {
+      // fallback: small tile
       ghost.style.width = '64px';
       ghost.style.height = '86px';
       ghost.style.borderRadius = '10px';
@@ -996,6 +1204,7 @@ function runDeathFX(ev){
     }
     fxLayer.appendChild(ghost);
 
+    // Small flame that rides on top of the moving card + leaves a trail
     const burn = document.createElement('div');
     burn.className = 'fx-burn';
     burn.style.left = a.x + 'px';
@@ -1010,6 +1219,7 @@ function runDeathFX(ev){
     const tick = (now)=>{
       const t = clamp01((now - t0) / dur);
 
+      // Smooth curve
       const mx = (a.x + b.x) / 2;
       const my = Math.min(a.y, b.y) - 70;
 
@@ -1026,6 +1236,7 @@ function runDeathFX(ev){
       burn.style.transform = `translate(-50%,-50%) scale(${0.95 + Math.sin(t*10)*0.07})`;
       burn.style.opacity = String(0.9 - t*0.25);
 
+      // Trail (lightweight): drop a small dot every ~60ms
       if (now - lastTrail > 60){
         lastTrail = now;
         const tr = document.createElement('div');
@@ -1042,6 +1253,7 @@ function runDeathFX(ev){
 
       if (t < 1) requestAnimationFrame(tick);
       else {
+        // small pop at grave
         burn.animate([
           { transform:'translate(-50%,-50%) scale(1)', opacity:0.6 },
           { transform:'translate(-50%,-50%) scale(1.5)', opacity:0 }
@@ -1068,6 +1280,7 @@ function renderBoard(boardEl, state, opts){
     if (line === "back") {
       const deckCount = (typeof state.deckCount === "number") ? state.deckCount : 0;
       side.innerText = `Deck\n(${deckCount})`;
+      // compra manual desativada (a compra é automática)
     } else {
       side.innerText = `Cemit.`;
       side.classList.add("clickable");
@@ -1101,29 +1314,15 @@ function renderBoard(boardEl, state, opts){
           }
           return;
         }
-        if (mode?.type === "hab") {
-          const wantsEnemy = (mode.needs === "enemy" || mode.needs === "ally_or_enemy") && roleName !== ROLE && isEnemy;
-          const wantsAlly = (mode.needs === "ally" || mode.needs === "ally_or_enemy") && roleName === ROLE && !isEnemy;
-          if (wantsEnemy || wantsAlly) {
+        if (mode?.type === "hab" && roleName === ROLE && !isEnemy) {
+          if (mode.needs === "ally") {
             if (!card) return;
-            socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useHab", from: mode.from, target: { role: roleName, pos: { line, index: actualI } } } });
+            socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useHab", from: mode.from, target: { role: ROLE, pos: { line, index: actualI } } } });
             mode = null;
             clearTargetHighlights();
             return;
           }
         }
-        if (mode?.type === "ult") {
-          const wantsEnemy = (mode.needs === "enemy" || mode.needs === "ally_or_enemy") && roleName !== ROLE && isEnemy;
-          const wantsAlly = (mode.needs === "ally" || mode.needs === "ally_or_enemy") && roleName === ROLE && !isEnemy;
-          if (wantsEnemy || wantsAlly) {
-            if (!card) return;
-            socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useUlt", from: mode.from, target: { role: roleName, pos: { line, index: actualI } } } });
-            mode = null;
-            clearTargetHighlights();
-            return;
-          }
-        }
-
         if (mode?.type === "attack" && roleName !== ROLE && isEnemy) {
           if (!card) return;
           socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "attack", from: mode.from, to: { line, index: actualI } } });
@@ -1135,6 +1334,9 @@ function renderBoard(boardEl, state, opts){
       };
 
       if (card){
+        const pa = document.createElement("div");
+        pa.className = "card pa";
+        // (reusing pa style from previous; simpler here)
         const paBadge = document.createElement("div");
         paBadge.style.position = "absolute";
         paBadge.style.top = "4px";
@@ -1156,6 +1358,7 @@ function renderBoard(boardEl, state, opts){
             <div class="type">${typeIcon(card.type)}</div>
           </div>
           <div class="tribe">${card.tribe ?? "-"}</div>
+          <div class="art"><img src="${cardArtUrl(card)}" alt=""></div>
           <div class="stats"><div>A ${card.atk ?? 0}</div><div>D ${card.def ?? 0}</div><div>V ${card.hp ?? 0}</div></div>
         `;
         s.appendChild(cdiv);
@@ -1183,6 +1386,7 @@ function renderHand(){
         <div style="font-size:14px">${typeIcon(card.type)}</div>
       </div>
       <div style="font-size:10px;opacity:.85;text-align:left;">${card.tribe ?? "-"}</div>
+      <div class="art"><img src="${cardArtUrl(card)}" alt=""></div>
       <div style="margin-top:auto;background:#333;border-radius:10px;padding:4px 6px;display:flex;justify-content:space-between;font-size:11px;">
         <div>A ${card.atk ?? 0}</div><div>D ${card.def ?? 0}</div><div>V ${card.hp ?? 0}</div>
       </div>
@@ -1231,13 +1435,38 @@ function renderGame(){
   infoMyHP.textContent = `Você: HP ${myHP}/1000  DEF ${myDEF}`;
   infoEnemyHP.textContent = `Oponente: HP ${eHP}/1000  DEF ${eDEF}`;
 
+
+// Left HUD values
+try{
+  const meNameEl = document.getElementById('hudMyName');
+  const enNameEl = document.getElementById('hudEnemyName');
+  const myHpEl = document.getElementById('hudMyHP');
+  const myDefEl = document.getElementById('hudMyDEF');
+  const myPiEl = document.getElementById('hudMyPI');
+  const enHpEl = document.getElementById('hudEnemyHP');
+  const enDefEl = document.getElementById('hudEnemyDEF');
+  const enPiEl = document.getElementById('hudEnemyPI');
+
+  if (meNameEl) meNameEl.textContent = gameState?.[ROLE]?.username || USERNAME || 'Você';
+  if (enNameEl) enNameEl.textContent = gameState?.[enemy]?.username || 'Oponente';
+
+  if (myHpEl) myHpEl.textContent = `${myHP}/1000`;
+  if (myDefEl) myDefEl.textContent = String(myDEF);
+  if (myPiEl) myPiEl.textContent = `${myPI}/${gameState?.[ROLE]?.maxPi ?? 7}`;
+
+  if (enHpEl) enHpEl.textContent = `${eHP}/1000`;
+  if (enDefEl) enDefEl.textContent = String(eDEF);
+  if (enPiEl) enPiEl.textContent = `${(gameState?.[enemy]?.pi ?? 0)}/${(gameState?.[enemy]?.maxPi ?? 7)}`;
+}catch(e){}
+
   renderBoard(enemyBoard, gameState[enemy], { clickable:false, isEnemy:true, roleName: enemy });
   renderBoard(myBoard, gameState[ROLE], { clickable:true, isEnemy:false, roleName: ROLE });
 
   renderEnemyHand();
   renderHand();
 
-  updateTargetHighlights();
+  if (mode?.type === "attack") highlightEnemyTargets();
+  highlightAllyTargets();
 }
 
 /**
@@ -1301,6 +1530,7 @@ function openGraveyard(role){
     <div class="z-stats"><div style="opacity:.85">Clique numa carta abaixo</div></div>
   `;
   modalActionsEl.innerHTML = "";
+  modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
 
   graveListEl.style.display = "grid";
   renderGraveList(role);
@@ -1344,7 +1574,14 @@ function renderModal(){
 
   const c = modalCard.card;
   const paTxt = Number.isInteger(c.pa) ? `PA ${c.pa}/11` : "";
-  const abilityTxt = "";
+  const abilityTxt = (c.habName || c.habDesc || c.ultName || c.ultDesc)
+    ? `<div class="z-ability">
+         <b>HAB:</b> ${c.habName || "-"}<br/>
+         <span style="opacity:.9">${c.habDesc || "-"}</span><br/><br/>
+         <b>ULT:</b> ${c.ultName || "—"}<br/>
+         <span style="opacity:.9">${c.ultDesc || "-"}</span>
+       </div>`
+    : "";
 
   zoomCardEl.innerHTML = `
     <div class="z-pa">${paTxt || `PI ${c.piCost ?? c.stars ?? 1}`}</div>
@@ -1355,32 +1592,53 @@ function renderModal(){
         <div class="z-type">${typeIcon(c.type)} <span style="font-size:13px;font-weight:800">${c.type ?? ""}</span></div>
         <div class="z-stars">${starsText(c.piCost ?? c.stars ?? 1)} (${c.piCost ?? c.stars ?? 1} PI)</div>
       </div>
+    </div>
+      <div class="art"><img src="${cardArtUrl(c)}" alt=""></div>
       <div class="z-stats">
         <div>ATK ${c.atk ?? 0}</div>
         <div>DEF ${c.def ?? 0}</div>
-        <div>HP ${c.hp ?? c.maxHp ?? 0}</div>
+        <div>HP ${(c.hp ?? c.maxHp ?? 0)}</div>
       </div>
-      ${abilityTxt}
-    </div>
+    ${abilityTxt}
   `;
 
   modalActionsEl.innerHTML = "";
 
-  if (modalCard.zone === "field" && modalCard.role === ROLE) {
-    modalActionsEl.appendChild(mkBtn("Habilidade","primary",()=>{
-      if (ACTIVE !== ROLE) return alert("Não é sua vez");
-      const cost = 3;
-      if ((c.pa ?? 0) < cost) return alert(`PA insuficiente (custa ${cost}).`);
-      const needs = getActionTargetMode(c, "skill");
-      if (needs === "ally" || needs === "enemy" || needs === "ally_or_enemy") {
-        mode = { type: "hab", needs, actionType: "skill", from: { line: modalCard.line, index: modalCard.index } };
+  const inMyTurn = (ACTIVE === ROLE);
+  const enemy = otherRole(ROLE);
+
+  // If it's a field card
+  if (modalCard.zone === "field"){
+    const isMine = (modalCard.role === ROLE);
+
+    if (isMine){
+      // My card actions: Attack / HAB
+      modalActionsEl.appendChild(mkBtn("Atacar","primary",()=>{
+        if (!inMyTurn) return alert("Não é sua vez");
+        mode = { type: "attack", from: { line: modalCard.line, index: modalCard.index } };
+        highlightEnemyTargets();
         closeModal(false);
-        updateTargetHighlights();
-        return;
-      }
-      socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useHab", from: { line: modalCard.line, index: modalCard.index } } });
-      closeModal(false);
-    }));
+      }));
+
+      modalActionsEl.appendChild(mkBtn("Usar HAB","",()=>{
+        if (!inMyTurn) return alert("Não é sua vez");
+        const kind = abilityKindForCard(c);
+        if (kind === "HEAL_ALLY"){
+          mode = { type: "hab", from: { line: modalCard.line, index: modalCard.index }, needs: "ally" };
+          highlightAllyTargets();
+          closeModal(false);
+          return;
+        }
+        // no target needed
+        socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useHab", from: { line: modalCard.line, index: modalCard.index } } });
+        closeModal(false);
+      }));
+
+      modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
+    } else {
+      // Enemy card: just close (attack happens by selecting after choosing attack mode)
+      modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
+    }
   }
 
   if (modalCard.zone === "hand") {
@@ -1390,92 +1648,49 @@ function renderModal(){
       const cost = c.piCost ?? c.stars ?? 1;
       if (myPI < cost) return alert(`PI insuficiente (custa ${cost}).`);
       mode = { type: "summon", handIndex: modalCard.handIndex };
+      // highlight empty slots on my board
+      clearTargetHighlights();
+      // (we highlight by allowing click on empty slots)
       closeModal(false);
     }));
+
+    modalActionsEl.appendChild(mkBtn("Cancelar","",()=>closeModal(true)));
   }
 
-  if (modalCard.zone === "field") {
-    const isMine = (modalCard.role === ROLE);
-
-    const btnAtk = mkBtn("Ataque","primary",()=>{
-      if (!isMine) return alert("Você só comanda suas cartas.");
-      if (ACTIVE !== ROLE) return alert("Não é sua vez");
-      const cur = c.pa ?? 0;
-      if (cur < 2) return alert("PA insuficiente (ataque custa 2).");
-      mode = { type:"attack", from: { line: modalCard.line, index: modalCard.index } };
-      closeModal(false);
-      updateTargetHighlights();
-    });
-    modalActionsEl.appendChild(btnAtk);
-
-    // Ultimate (conflito resolvido)
-    if (isMine) {
-      const btnUlt = mkBtn("Ultimate","primary",()=>{
-        if (ACTIVE !== ROLE) return alert("Não é sua vez");
-        const cur = c.pa ?? 0;
-        const ultCost = 5;
-        if (cur < ultCost) return alert(`PA insuficiente (Ultimate custa ${ultCost}).`);
-        const needs = getActionTargetMode(c, "ult");
-        if (needs === "ally" || needs === "enemy" || needs === "ally_or_enemy") {
-          mode = { type:"ult", from: { line: modalCard.line, index: modalCard.index }, needs, actionType: "ult" };
-          closeModal(false);
-          updateTargetHighlights();
-          return;
-        }
-        socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "useUlt", from: { line: modalCard.line, index: modalCard.index } } });
-        closeModal(false);
-      });
-
-      const cur = c.pa ?? 0;
-      const ultCost = 5;
-      const canUseUlt = (ACTIVE === ROLE) && (cur >= ultCost);
-      if (!canUseUlt) {
-        btnUlt.disabled = true;
-        btnUlt.classList.add("disabled");
-      }
-      modalActionsEl.appendChild(btnUlt);
-    }
+  if (modalCard.zone === "grave" || modalCard.zone === "model"){
+    modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
   }
-
-  if (modalCard.zone === "model") modalActionsEl.innerHTML = "";
-  if (modalCard.zone === "grave") modalActionsEl.innerHTML = "";
 }
 
-/* Attack targeting highlight */
+/**
+ * =============================
+ *  Target Highlights
+ * =============================
+ */
 function clearTargetHighlights(){
-  document.querySelectorAll(".slot.targetable").forEach(el => {
-    el.classList.remove("targetable");
-    el.classList.remove("blinking");
-  });
+  document.querySelectorAll(".slot.targetable").forEach(el=>el.classList.remove("targetable"));
 }
-function highlightEnemyTargets({ blink = false, actionType = "attack" } = {}){
+
+function highlightEnemyTargets(){
   clearTargetHighlights();
-  if (!mode) return;
-
+  if (!mode || mode.type !== "attack") return;
   const enemy = otherRole(ROLE);
-  const opp = gameState?.[enemy];
-  if (!opp) return;
-
-  const fromCard = gameState?.[ROLE]?.[mode.from.line]?.[mode.from.index];
-  const canHitBack = canTargetBackRow(fromCard, enemy);
-
-  ["front","back"].forEach(line => {
-    if (line === "back" && !canHitBack) return;
-    for (let i=0;i<5;i++){
-      const c = opp[line][i];
-      if (!c) continue;
-      const slot = document.querySelector(`.slot[data-owner="${enemy}"][data-line="${line}"][data-index="${i}"]`);
-      if (slot) {
-        slot.classList.add("targetable");
-        if (blink) slot.classList.add("blinking");
+  const en = gameState?.[enemy];
+  if (!en) return;
+  ["front","back"].forEach(line=>{
+    for(let i=0;i<5;i++){
+      const c = en[line]?.[i];
+      if (c){
+        const el = getSlotEl(enemy, line, i);
+        if (el) el.classList.add("targetable");
       }
     }
   });
 }
 
-function highlightAllyTargets({ blink = false } = {}){
+function highlightAllyTargets(){
   clearTargetHighlights();
-  if (!mode || (mode.needs !== "ally" && mode.needs !== "ally_or_enemy")) return;
+  if (!mode || mode.type !== "hab" || mode.needs !== "ally") return;
   const me = gameState?.[ROLE];
   if (!me) return;
   ["front","back"].forEach(line=>{
@@ -1483,29 +1698,10 @@ function highlightAllyTargets({ blink = false } = {}){
       const c = me[line]?.[i];
       if (c){
         const el = getSlotEl(ROLE, line, i);
-        if (el) {
-          el.classList.add("targetable");
-          if (blink) el.classList.add("blinking");
-        }
+        if (el) el.classList.add("targetable");
       }
     }
   });
-}
-
-function updateTargetHighlights(){
-  if (!mode) return clearTargetHighlights();
-  if (mode.type === "attack") return highlightEnemyTargets();
-  if (mode.type === "hab" || mode.type === "ult") {
-    const blink = shouldBlinkTargets(mode);
-    if (mode.needs === "enemy") return highlightEnemyTargets({ blink, actionType: mode.actionType });
-    if (mode.needs === "ally") return highlightAllyTargets({ blink });
-    if (mode.needs === "ally_or_enemy") {
-      highlightEnemyTargets({ blink, actionType: mode.actionType });
-      highlightAllyTargets({ blink });
-      return;
-    }
-  }
-  clearTargetHighlights();
 }
 </script>
 </body>
