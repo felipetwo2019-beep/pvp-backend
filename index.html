@@ -760,11 +760,18 @@ socket.on("game:event", (ev) => {
   if (ev.type === "attack") {
     requestAnimationFrame(() => runAttackFX(ev));
   }
+  if (ev.type === "ult") {
+    requestAnimationFrame(() => runUltFX(ev));
+  }
   if (ev.type === "death") {
     requestAnimationFrame(() => runDeathFX(ev));
   }
   if (ev.type === "hab") {
     requestAnimationFrame(() => runHabFX(ev));
+  }
+  if (ev.type === "gameOver") {
+    const msg = ev.winner === ROLE ? "Você venceu!" : "Você perdeu!";
+    setTimeout(() => alert(msg), 120);
   }
 });
 
@@ -832,6 +839,14 @@ function spawnDamageNumber(x,y, value, { isReflected=false }={}){
   setTimeout(()=>d.remove(), dur+50);
 }
 
+function animateSlotHit(slot){
+  if (!slot) return;
+  slot.classList.remove("fx-shake");
+  void slot.offsetWidth;
+  slot.classList.add("fx-shake");
+  setTimeout(()=>slot.classList.remove("fx-shake"), 320);
+}
+
 function spawnFloatNumber(x,y, text){
   const d=document.createElement('div');
   d.className='fx-dmg';
@@ -850,6 +865,10 @@ function spawnFloatNumber(x,y, text){
 
 function runHabFX(ev){
   if (!ROLE) return;
+  if (ev.dmgToTarget || ev.dmgToAttacker) {
+    runAttackFX(ev);
+    return;
+  }
   const from = ev.from;
   const fromSlot = getSlotEl(ev.role, from.line, from.index);
   if (!fromSlot) return;
@@ -874,6 +893,10 @@ function runHabFX(ev){
 
 function runUltFX(ev){
   if (!ROLE) return;
+  if (ev.dmgToTarget || ev.dmgToAttacker) {
+    runAttackFX(ev);
+    return;
+  }
   const from = ev.from;
   const fromSlot = getSlotEl(ev.role, from.line, from.index);
   if (!fromSlot) return;
@@ -906,9 +929,9 @@ function runUltFX(ev){
 function runAttackFX(ev){
   if (!ROLE) return;
   const attackerRole = ev.role;
-  const defenderRole = otherRole(attackerRole);
   const from = ev.from;
-  const to = ev.to;
+  const to = ev.to || ev.target?.pos;
+  const defenderRole = ev.target?.role || otherRole(attackerRole);
 
   const fromSlot = getSlotEl(attackerRole, from.line, from.index);
   const toSlot = getSlotEl(defenderRole, to.line, to.index);
@@ -961,16 +984,14 @@ function runAttackFX(ev){
 
     // Damage numbers: on target, and possibly reflected on attacker
     // dmgToTarget: damage applied to target card (not player)
-    if (ev.dmgToTarget && ev.dmgToTarget>0) spawnDamageNumber(b.x, b.y, ev.dmgToTarget, { isReflected:false });
-    if (ev.dmgToAttacker && ev.dmgToAttacker>0) {
-      // show reflected damage on attacker card center
-      const ac = rectCenter(fromSlot);
-      spawnDamageNumber(ac.x, ac.y, ev.dmgToAttacker, { isReflected:true });
+    if (ev.dmgToTarget && ev.dmgToTarget>0) {
+      spawnDamageNumber(b.x, b.y, ev.dmgToTarget, { isReflected:false });
+      animateSlotHit(toSlot);
     }
-if (ev.dmgToAttacker && ev.dmgToAttacker>0) {
-      // show reflected damage on attacker card center
+    if (ev.dmgToAttacker && ev.dmgToAttacker>0) {
       const ac = rectCenter(fromSlot);
       spawnDamageNumber(ac.x, ac.y, ev.dmgToAttacker, { isReflected:true });
+      animateSlotHit(fromSlot);
     }
 
     // Player HP damage numbers (server-authoritative)
