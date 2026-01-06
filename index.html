@@ -95,11 +95,11 @@
 }
 
 /* Game sizing so it never forces page scroll */
-#scrGame .cardbox{ height: 100%; padding-top: 100px; }
+#scrGame .cardbox{ height: 100%; padding-top: 40px; }
 #scrGame .gamewrap{ height: 100%; display:flex; gap: 12px; }
 #scrGame .actionlog{ flex: 0 0 clamp(240px, 22vw, 320px); height: 100%; }
 #scrGame .actionlog .loglist{ height: calc(100% - 76px); overflow:auto; }
-#scrGame .gamefield{ flex: 1; min-width: 0; height: 100%; overflow: hidden; display:flex; flex-direction: column; }
+#scrGame .gamefield{ flex: 1; min-width: 0; height: 100%; overflow: visible; display:flex; flex-direction: column; }
 #scrGame .hand-wrap{ flex: 1; min-height: 0; display:flex; flex-direction: column; }
 #scrGame .hand{ flex: 1; min-height: 0; overflow: auto; padding-bottom: 6px; }
 
@@ -118,34 +118,254 @@
   .smallbtn{ padding: 7px 9px; font-size: 12px; border-radius: 10px; }
 
   /* Lobby & Game from previous build (compact) */
-  .board { display:grid; grid-template-columns: 70px repeat(5, 80px); grid-template-rows: repeat(2, 120px); gap: 6px; justify-content:center; }
-  .slot { width: 80px; height:120px; border:2px dashed #555; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; position:relative; }
+  .board { --slot-w: 112px; --slot-h: 135px; display:grid; grid-template-columns: 70px repeat(5, var(--slot-w)); grid-template-rows: repeat(2, var(--slot-h)); gap: 6px; justify-content:center; }
+  .slot { width: var(--slot-w); height: var(--slot-h); border:1px solid rgba(255,255,255,0.22); border-radius: 12px; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; position:relative; box-sizing: border-box; padding: 6px; }
   .slot.targetable{ border-color: rgba(255, 214, 0, 0.85); box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.15); }
-  .side-slot { width:70px; height:120px; border:2px solid #888; background:#222; font-size:12px; display:flex; align-items:center; justify-content:center; user-select:none; cursor: default; white-space: pre-line; position:relative; }
+  
+  /* Empty slot styling (field only) */
+  #myBoard .slot.empty{
+    border-color: rgba(255,255,255,0.70);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.15), 0 0 10px rgba(255,255,255,0.18);
+  }
+  #enemyBoard .slot.empty{
+    border-color: rgba(255,70,70,0.80);
+    box-shadow: 0 0 0 1px rgba(255,70,70,0.14), 0 0 10px rgba(255,70,70,0.18);
+  }
+  /* Non-empty slots keep subtle frame */
+  #myBoard .slot:not(.empty){ border-color: rgba(255,255,255,0.22); }
+  #enemyBoard .slot:not(.empty){ border-color: rgba(255,255,255,0.22); }
+.side-slot { width:70px; height: var(--slot-h); border:2px solid #888; background:#222; font-size:12px; display:flex; align-items:center; justify-content:center; user-select:none; cursor: default; white-space: pre-line; position:relative; }
   .side-slot.clickable{ cursor:pointer; outline: 2px solid rgba(77,166,255,0.25); }
   .side-slot .count-badge{ position:absolute; bottom: 6px; right: 6px; background: rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.16); border-radius: 999px; padding: 2px 6px; font-size: 11px; }
-  .card { width:70px; height:100px; background:#4da6ff; border-radius:10px; display:flex; flex-direction: column; justify-content: space-between; color:#052033; font-weight:bold; font-size:11px; padding: 6px; box-sizing: border-box; }
-  .card .top{ display:flex; justify-content: space-between; align-items: center; gap: 6px; }
-  .card .name{ font-size: 11px; font-weight: 800; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card { position: relative; width:100%; height:100%; background:#4da6ff; border-radius:10px; display:flex; flex-direction: column; justify-content: flex-start; color:#052033; font-weight:bold; font-size:11px; padding: 4px; box-sizing: border-box; overflow:hidden; }
+  .card .top{ display:flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 2px; }
+  .card .name{ font-size: 11px; font-weight: 800; line-height: 1.05; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .card .type{ font-size: 14px; }
-  .card .tribe{ font-size: 10px; opacity: 0.85; text-align:left; }
-  .card .stats{ display:flex; justify-content: space-between; font-size: 11px; background: rgba(255,255,255,0.28); border-radius: 8px; padding: 3px 6px; }
+  .card .tribe{ font-size: 10px; opacity: 0.85; line-height: 1.05; margin-top: 2px; text-align:left; }
+  .card .stats{ display:flex; justify-content: space-between; gap: 6px; font-size: 11px; background: rgba(255,255,255,0.28); border-radius: 8px; padding: 3px 6px; margin-top: auto; width: 100%; box-sizing: border-box; }
   .card .pa{ position:absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.55); color:#fff; border-radius: 999px; font-size: 11px; padding: 2px 6px; font-weight: 700; }
 
-  .hand-wrap { margin:20px;  margin-left: 100px; max-width: 900px; }
+  .hand-wrap { margin:10px;  margin-left: 100px; max-width: 900px; position: sticky;
+  bottom: 0;
+  z-index: 50; }
   .hand { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
-  .hand-card { width:92px; height:122px; border:2px solid #666; border-radius:12px; background:#222; cursor:pointer; user-select:none; display:flex; flex-direction: column; justify-content: space-between; padding:6px; box-sizing:border-box; position:relative; }
-  .hand-card .hc-stars{ position:absolute; top: 4px; right: 4px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; font-size: 11px; padding: 2px 6px; }
+  .hand-card{
+    /* bigger hand cards, but responsive and never forcing vertical page scroll */
+    width: clamp(108px, 9vw, 140px);
+    height: clamp(168px, 20vh, 220px);
+
+    border: 2px solid #666;
+    border-radius: 14px;
+    background: #222;
+
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    padding: 8px;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  /* Top-left type icon overlay (on the card) */
+  .hand-card .hc-type{
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    z-index: 5;
+
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+
+    border-radius: 999px;
+    background: rgba(0,0,0,0.60);
+    border: 1px solid rgba(255,255,255,0.22);
+    color: #fff;
+    font-size: 12px;
+    line-height: 1;
+    pointer-events: none;
+  }
+
+  .hand-card .hc-head{
+    padding-left: 28px; /* leave room for type icon */
+    padding-right: 2px;
+    padding-top: 0;
+  }
+  .hand-card .name{
+    font-weight: 900;
+    font-size: 11px;
+    line-height: 1.05;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Art area grows, stats stay at the bottom */
+  .hand-card .art{
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .hand-card .art img{
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.25);
+    opacity: .95;
+    display:block;
+  }
+
+  /* Stars overlay: vertical, over the art (top-right) */
+  .hand-card .hc-stars{
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 4;
+
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    background: rgba(0,0,0,0.45);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 10px;
+    padding: 4px 6px;
+
+    font-size: 11px;
+    line-height: 1;
+    color: #fff;
+    pointer-events: none;
+  }
+
+  /* Tribe centered */
+  .hand-card .tribe{
+    font-size: 10px;
+    opacity: 0.85;
+    line-height: 1.05;
+    text-align: center;
+    width: 100%;
+    margin-top: 0;
+  }
+
+  /* Stats INSIDE the card, pinned to internal bottom */
+  .hand-card .stats{
+    margin-top: auto;
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 12px;
+    padding: 4px 8px;
+
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+
+    font-size: 11px;
+    font-weight: 800;
+  }
   .enemy-area { position: relative; display: inline-block; }
-  .enemy-hand-wrap { position: absolute; top: -90px; right: 85px; display: flex; gap: 6px; align-items: center; justify-content: flex-end; pointer-events: none; }
+  .enemy-hand-wrap { position: absolute; top: -70px; right: 85px; display: flex; gap: 6px; align-items: center; justify-content: flex-end; pointer-events: none; }
   .enemy-hand-card { width: 45px; height: 60px; border: 2px solid #555; border-radius: 8px; background: linear-gradient(135deg, #2a2a2a, #1a1a1a); }
   .enemy-hand-count { font-size: 12px; opacity: 0.8; margin-left: 6px; }
 
-  .modal-backdrop{ position: fixed; inset: 0; background: rgba(0,0,0,0.65); display:none; align-items: center; justify-content: center; z-index: 50; }
+  .modal-backdrop{ position: fixed; inset: 0; background: rgba(0,0,0,0.65); display:none; align-items: center; justify-content: center; z-index: 999; }
   .modal-backdrop.open{ display:flex; }
-  .modal{ width: 420px; max-width: 94vw; background:#1b1b1b; border:1px solid #333; border-radius: 16px; padding: 14px; box-shadow: 0 20px 50px rgba(0,0,0,0.55); }
+  
+  /* Actions modal lives in its own "modal" without a dark backdrop */
+  .modal-backdrop.modal-backdrop-actions{
+    background: transparent;
+    display: none;
+    pointer-events: none; /* allow clicks to go through except on the actions panel itself */
+  }
+  .modal-backdrop.modal-backdrop-actions.open{ display: block; }
+
+  .modal-shell-actions{
+    position: fixed;
+    inset: auto;
+    display: inline-flex;     /* shrink-wrap to the panel */
+    width: fit-content;
+    height: fit-content;
+    pointer-events: none;
+  }
+  .modal-shell-actions .modal{
+    pointer-events: auto;
+  }
+
+  /* Card modal shell should shrink-wrap to the card content */
+  .modal-shell-card{
+    display: inline-flex;
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+.modal{ width: 420px; max-width: 94vw;
+  }
+  /* Zone-specific modal sizing */
+  .modal.modal-card[data-zone="field"]{ width: 390px; height: 508px; }
+  /* Hand modal size is driven by --hand-zoom-width/height on .zoom-card.hand-zoom */
+  .modal.modal-card[data-zone="hand"]{ width: fit-content; }
+
+  .modal{ width: 420px; max-width: 94vw; box-sizing: border-box; background:#1b1b1b; border:1px solid #333; border-radius: 16px; padding: 14px; box-shadow: 0 20px 50px rgba(0,0,0,0.55); }
   .modal.hand-modal{ width: auto; }
-  .zoom-card{ height: 260px; border-radius: 14px; background: #4da6ff; color:#052033; padding: 12px; box-sizing: border-box; display:flex; flex-direction: column; justify-content: space-between; position: relative; }
+  
+  /* Split modal: card (left) + actions (right) */
+  .modal-shell{
+    display:flex;
+    gap: 0;
+    align-items: stretch;          /* make actions panel flush with the card */
+    justify-content: flex-start;   /* avoid any "center" spacing */
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+  .modal-card{
+    width: fit-content;            /* shrink-wrap to the zoomed card */
+    max-width: 94vw;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-card[data-zone="hand"]{ width: fit-content; }
+  .modal-side{
+    width: 220px;
+    max-width: 94vw;
+    padding: 12px;
+    margin-left: -1px;             /* overlap borders so there is no visible gap */
+  }
+  /* flush edges between card and actions */
+  .modal-card{ border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .modal-side{ border-top-left-radius: 0; border-bottom-left-radius: 0; }
+
+  .modal-side .side-title{
+    font-weight: 900;
+    letter-spacing: .3px;
+    font-size: 13px;
+    opacity: .9;
+    margin-bottom: 10px;
+  }
+  .modal-side .modal-actions{
+    justify-content: stretch;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .modal-side .btn{ width: 100%; }
+
+  @media (max-width: 720px){
+    .modal-shell{ flex-direction: column; align-items: stretch; }
+    .modal-side{ width: auto; }
+  }
+
+  /* doubled modal size */
+  .modal-card .zoom-card{ height: auto;  display:flex; flex-direction:column; }
+  .zoom-card[data-modal-zone="field"]{ width: 362px; height: 480px; }
+.zoom-card{ height: auto; border-radius: 14px; background: #4da6ff; color:#052033; padding: 12px; box-sizing: border-box; display:flex; flex-direction: column; justify-content: space-between; position: relative;  display:flex; flex-direction:column; }
   .zoom-card.hand-zoom{
     width: var(--hand-zoom-width, 161px);
     height: var(--hand-zoom-height, 214px);
@@ -154,12 +374,12 @@
   }
   .zoom-card .z-name{ font-size: 18px; font-weight: 900; text-align:left; }
   .zoom-card .z-tribe{ font-size: 13px; opacity: 0.9; text-align:left; }
-  .zoom-card .z-meta{ display:flex; justify-content: space-between; align-items:center; margin-top: 8px; gap: 10px; }
+  .zoom-card .z-meta{ display:flex; justify-content: space-between; align-items:center; margin-top:4px; gap: 10px; }
   .zoom-card .z-type{ font-size: 18px; }
   .zoom-card .z-stars{ background: rgba(0,0,0,0.18); border-radius: 999px; padding: 4px 8px; font-size: 13px; font-weight: 800; }
   .zoom-card .z-pa{ position:absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.55); color:#fff; border-radius: 999px; padding: 4px 8px; font-size: 13px; font-weight: 900; }
-  .zoom-card .z-stats{ display:flex; gap: 10px; background: rgba(255,255,255,0.28); border-radius: 12px; padding: 8px 10px; justify-content: space-between; font-size: 14px; font-weight: 800; margin-top: 10px; }
-  .zoom-card .z-ability{ background: rgba(255,255,255,0.18); border-radius: 12px; padding: 8px 10px; margin-top: 10px; font-size: 12px; line-height: 1.35; }
+  .zoom-card .z-stats{ display:flex; gap: 10px; background: rgba(255,255,255,0.28); border-radius: 12px; padding: 8px 10px; justify-content: space-between; font-size: 14px; font-weight: 800; margin-top:6px; }
+  .zoom-card .z-ability{ background: rgba(255,255,255,0.18); border-radius: 12px; padding: 8px 10px; margin-top:6px; font-size: 12px; line-height: 1.35; }
   .modal-actions{ display:flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
   .btn{ border:none; border-radius: 10px; padding: 10px 12px; cursor:pointer; background:#2a2a2a; color:#eee; border:1px solid #3a3a3a; font-weight: 700; }
   .btn.primary{ background:#2b74ff; border-color:#2b74ff; color:#fff; }
@@ -193,6 +413,26 @@
     100%{ transform: translateX(0); }
   }
 
+  /* Field card layout tweaks */
+  .card .art{ flex: 1 1 auto; min-height: 0; position: relative; }
+  .card .type.type-overlay{
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid rgba(255,255,255,0.22);
+    color: #fff;
+    font-size: 12px;
+    line-height: 1;
+    box-shadow: 0 10px 22px rgba(0,0,0,0.35);
+    pointer-events: none;
+  }
+
   /* === Card Art (center image) === */
   .card .art,
   .hand-card .art,
@@ -200,12 +440,12 @@
     display:flex;
     align-items:center;
     justify-content:center;
-    margin: 6px 0;
+    margin: 3px 0;
     width: 100%;
   }
   .card .art img{
     width: 100%;
-    height: 44px;
+    height: 100%;
     object-fit: cover;
     border-radius: 8px;
     border: 1px solid rgba(0,0,0,0.18);
@@ -214,22 +454,17 @@
   }
   .hand-card .art img{
     width: 100%;
-    height: 56px;
+    height: 100%;
     object-fit: cover;
-    border-radius: 10px;
+    border-radius: 12px;
     border: 1px solid rgba(255,255,255,0.10);
     box-shadow: 0 8px 18px rgba(0,0,0,0.25);
     opacity: .95;
+    display:block;
   }
-  .zoom-card .art{
-    height: 118px;
-  }
-  .zoom-card.hand-zoom .art{
-    height: clamp(120px, 42%, 220px);
-  }
-  .zoom-card .art img{
-    width: 100%;
-    height: 100%;
+  .zoom-card .art{ flex:1 1 auto; min-height: 180px; margin: 10px 0; }
+  .zoom-card.hand-zoom .art{ flex:1 1 auto; min-height: 200px; }
+  .zoom-card .art img{ width:100%; height:100%; object-fit:cover;
     object-fit: contain;
     object-position: center;
     border-radius: 12px;
@@ -260,6 +495,89 @@
     border-radius: inherit;
     background: radial-gradient(circle at 50% 45%, rgba(0,0,0,0) 45%, rgba(0,0,0,0.32) 100%);
     mix-blend-mode: multiply;
+  }
+
+
+  /* === Layout: reduce gap between boards + overlay hand === */
+  #scrGame .cardbox{
+    position: relative;
+    overflow: visible; /* allow hand to overlap field container */
+    padding-bottom: 110px; /* reserve space so hand doesn't cover board interactions too much */
+  }
+
+  /* Bring the two boards closer (enemy + my) */
+  #scrGame #enemyBoard{ margin-bottom: 4px; }
+  #scrGame #myBoard{ margin-top: 4px; }
+
+  /* Hand overlay (on top of the field background) */
+  #scrGame .hand-wrap{
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    z-index: 20;          /* above the field background */
+    margin: 0;
+    max-width: min(1100px, calc(100% - 40px));
+    pointer-events: auto;
+  }
+
+  /* Remove hand scroll: show all cards without scrollbar */
+  #scrGame .hand-wrap{ height: auto; }
+  #scrGame .hand{
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    flex: 0 0 auto !important;
+    padding-bottom: 0 !important;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+
+  /* === Overrides (Jan 2026): hand fixed to bottom + tribe centered === */
+
+  /* Ensure game containers never clip the hand overlay */
+  body{ overflow:hidden; }
+  #scrGame .cardbox{ overflow: visible !important; }
+  #scrGame .gamewrap,
+  #scrGame .gamefield{ overflow: visible !important; }
+
+  /* Player hand: fixed to viewport bottom, over the black background */
+  #scrGame .hand-wrap{
+    position: fixed !important;
+    left: 50% !important;
+    bottom: 0 !important;
+    transform: translateX(-50%) !important;
+
+    width: min(1100px, calc(100% - 40px)) !important;
+    max-width: min(1100px, calc(100% - 40px)) !important;
+
+    margin: 0 !important;
+    padding: 0 10px calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+
+    z-index: 999 !important;          /* above map/field */
+    pointer-events: auto !important;  /* still clickable */
+  }
+
+  /* Keep boards clickable above reserved spacing, but never cover the hand */
+  #scrGame .cardbox{
+    padding-bottom: 140px !important; /* reserve interaction space behind the hand */
+  }
+
+  /* Hand layout should never be cut off by internal scrolling */
+  #scrGame .hand{
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    flex: 0 0 auto !important;
+    justify-content: center !important;
+    flex-wrap: wrap !important;
+  }
+
+  /* Center tribe text on field cards */
+  .card .tribe{
+    text-align: center !important;
+    width: 100% !important;
   }
 
 </style>
@@ -414,7 +732,7 @@
         </div>
       </div>
 
-      <hr style="border:none;border-top:1px solid #25252a; margin: 14px 0;">
+      <hr style="border:none;border-top:1px solid #25252a; margin: 6px 0;">
 
       <div style="text-align:center;">
         <div class="board" id="myBoard"></div>
@@ -428,12 +746,24 @@
 
   <div id="fxLayer" aria-hidden="true"></div>
 
-  <!-- MODAL -->
-  <div id="modalBackdrop" class="modal-backdrop">
-    <div class="modal">
-      <div id="zoomCard" class="zoom-card"></div>
-      <div id="modalActions" class="modal-actions"></div>
-      <div id="graveList" class="grave-list" style="display:none;"></div>
+  <!-- MODALS -->
+  <!-- Card modal (zoom da carta / cemitério) -->
+  <div id="cardBackdrop" class="modal-backdrop">
+    <div class="modal-shell modal-shell-card" role="dialog" aria-modal="true" aria-label="Detalhes da Carta">
+      <div class="modal modal-card">
+        <div id="zoomCard" class="zoom-card"></div>
+        <div id="graveList" class="grave-list" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Actions modal (apenas botões) -->
+  <div id="actionsBackdrop" class="modal-backdrop modal-backdrop-actions" aria-hidden="true">
+    <div class="modal-shell modal-shell-actions" role="dialog" aria-modal="false" aria-label="Ações">
+      <div class="modal modal-side">
+        <div class="side-title">Ações</div>
+        <div id="modalActions" class="modal-actions"></div>
+      </div>
     </div>
   </div>
 
@@ -1319,7 +1649,9 @@ function renderBoard(boardEl, state, opts){
 
       const card = state[line][actualI];
 
-      s.onclick = () => {
+      
+      s.classList.toggle("empty", !card);
+s.onclick = () => {
         if (mode?.type === "summon" && roleName === ROLE && clickable) {
           if (!card) {
             socket.emit("game:intent", { roomId: ROOM_ID, token: TOKEN, intent: { type: "playCard", handIndex: mode.handIndex, line, index: actualI } });
@@ -1369,13 +1701,12 @@ function renderBoard(boardEl, state, opts){
         cdiv.innerHTML = `
           <div class="top">
             <div class="name">${card.name ?? "Carta"}</div>
-            <div class="type">${typeIcon(card.type)}</div>
           </div>
+          <div class="art"><img src="${cardArtUrl(card)}" alt=""><span class="type type-overlay" aria-hidden="true">${typeIcon(card.type)}</span></div>
           <div class="tribe">${card.tribe ?? "-"}</div>
-          <div class="art"><img src="${cardArtUrl(card)}" alt=""></div>
           <div class="stats"><div>A ${card.atk ?? 0}</div><div>D ${card.def ?? 0}</div><div>V ${card.hp ?? 0}</div></div>
         `;
-        s.appendChild(cdiv);
+s.appendChild(cdiv);
       }
 
       boardEl.appendChild(s);
@@ -1386,27 +1717,40 @@ function renderBoard(boardEl, state, opts){
 function renderHand(){
   myHandEl.innerHTML = "";
   const hand = gameState?.[ROLE]?.hand || [];
+
   hand.forEach((card, i) => {
     const el = document.createElement("div");
     el.className = "hand-card";
     el.onclick = (event) => openModal({ zone:"hand", role: ROLE, handIndex: i, card, sourceEl: event.currentTarget });
-    const stars = document.createElement("div");
-    stars.className = "hc-stars";
-    stars.textContent = `${starsText(card.piCost ?? card.stars ?? 1)} (${card.piCost ?? card.stars ?? 1})`;
-    el.appendChild(stars);
-    el.innerHTML += `
-      <div style="display:flex;justify-content:space-between;gap:6px;align-items:center;">
-        <div style="font-weight:900;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${card.name ?? "Carta"}</div>
-        <div style="font-size:14px">${typeIcon(card.type)}</div>
+
+    const cost = (card.piCost ?? card.stars ?? 1);
+
+    el.innerHTML = `
+      <div class="hc-type" aria-hidden="true">${typeIcon(card.type)}</div>
+
+      <div class="hc-head">
+        <div class="name" title="${(card.name ?? "Carta").replaceAll('"','&quot;')}">${card.name ?? "Carta"}</div>
       </div>
-      <div style="font-size:10px;opacity:.85;text-align:left;">${card.tribe ?? "-"}</div>
-      <div class="art"><img src="${cardArtUrl(card)}" alt=""></div>
-      <div style="margin-top:auto;background:#333;border-radius:10px;padding:4px 6px;display:flex;justify-content:space-between;font-size:11px;">
-        <div>A ${card.atk ?? 0}</div><div>D ${card.def ?? 0}</div><div>V ${card.hp ?? 0}</div>
+
+      <div class="art">
+        <img src="${cardArtUrl(card)}" alt="">
+        <div class="hc-stars" aria-hidden="true" title="PI ${cost}">
+          ${starsText(cost).split("").map(s=>`<span>${s}</span>`).join("")}
+        </div>
+      </div>
+
+      <div class="tribe">${card.tribe ?? "-"}</div>
+
+      <div class="stats" aria-label="Atributos">
+        <div>A ${card.atk ?? 0}</div>
+        <div>D ${card.def ?? 0}</div>
+        <div>V ${card.hp ?? 0}</div>
       </div>
     `;
+
     myHandEl.appendChild(el);
   });
+
   if (hand.length === 0){
     const empty = document.createElement("div");
     empty.style.opacity = ".7";
@@ -1488,8 +1832,11 @@ try{
  *  Modal (Card zoom + Graveyard)
  * =============================
  */
-const modalBackdrop = document.getElementById("modalBackdrop");
-const modalEl = modalBackdrop.querySelector(".modal");
+const cardBackdrop = document.getElementById("cardBackdrop");
+const actionsBackdrop = document.getElementById("actionsBackdrop");
+const modalCardWrapEl = cardBackdrop?.querySelector(".modal-card");
+const modalActionsWrapEl = actionsBackdrop?.querySelector(".modal-side");
+const actionsShellEl = actionsBackdrop?.querySelector(".modal-shell-actions");
 const zoomCardEl = document.getElementById("zoomCard");
 const modalActionsEl = document.getElementById("modalActions");
 const graveListEl = document.getElementById("graveList");
@@ -1506,11 +1853,14 @@ function openModal(payload){
   modalCard = payload;
   graveView = null;
   renderModal();
-  modalBackdrop.classList.add("open");
+  cardBackdrop.classList.add("open");
+  actionsBackdrop.classList.add("open");
+  positionActionsModal();
 }
 
 function closeModal(clearMode=false){
-  modalBackdrop.classList.remove("open");
+  cardBackdrop.classList.remove("open");
+  actionsBackdrop.classList.remove("open");
   modalCard = null;
   graveView = null;
   graveListEl.style.display = "none";
@@ -1519,13 +1869,57 @@ function closeModal(clearMode=false){
   zoomCardEl.dataset.modalZone = "";
   zoomCardEl.style.removeProperty("--hand-zoom-width");
   zoomCardEl.style.removeProperty("--hand-zoom-height");
-  if (modalEl) modalEl.classList.remove("hand-modal");
+  if (modalCardWrapEl) modalCardWrapEl.classList.remove("hand-modal");
+  if (modalCardWrapEl) modalCardWrapEl.style.removeProperty("width");
   if (clearMode) mode = null;
   clearTargetHighlights();
 }
 
-modalBackdrop.addEventListener("click", (e) => {
-  if (e.target === modalBackdrop) closeModal(true);
+
+function positionActionsModal(){
+  if (!cardBackdrop?.classList.contains("open")) return;
+  if (!actionsBackdrop?.classList.contains("open")) return;
+
+  const cardShell = cardBackdrop.querySelector(".modal-shell-card");
+  const actionsShell = actionsBackdrop.querySelector(".modal-shell-actions");
+  const actionsPanel = actionsBackdrop.querySelector(".modal-side");
+  if (!cardShell || !actionsShell || !actionsPanel) return;
+
+  // Temporarily show for measurement
+  actionsShell.style.visibility = "hidden";
+  actionsShell.style.left = "0px";
+  actionsShell.style.top = "0px";
+
+  // Ensure the panel is scroll-safe but does NOT become fixed; the shell is fixed.
+  actionsPanel.style.maxHeight = "calc(100vh - 24px)";
+  actionsPanel.style.overflow = "auto";
+
+  const cardRect = cardShell.getBoundingClientRect();
+  const actionsRect = actionsShell.getBoundingClientRect();
+
+  const gap = 0; // flush: actions shell touches the card shell
+
+  // Place shell to the right of the card shell and vertically centered to the card shell
+  let left = cardRect.right + gap;
+  let top = (cardRect.top + (cardRect.height / 2)) - (actionsRect.height / 2);
+
+  // Keep inside viewport
+  const minX = 12;
+  const minY = 12;
+  const maxX = window.innerWidth - actionsRect.width - 12;
+  const maxY = window.innerHeight - actionsRect.height - 12;
+
+  left = Math.max(minX, Math.min(left, maxX));
+  top = Math.max(minY, Math.min(top, maxY));
+
+  actionsShell.style.left = `${left}px`;
+  actionsShell.style.top = `${top}px`;
+  actionsShell.style.visibility = "visible";
+}
+
+window.addEventListener("resize", () => positionActionsModal());
+cardBackdrop.addEventListener("click", (e) => {
+  if (e.target === cardBackdrop) closeModal(true);
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" || e.key === "Esc") closeModal(true);
@@ -1554,7 +1948,9 @@ function openGraveyard(role){
 
   graveListEl.style.display = "grid";
   renderGraveList(role);
-  modalBackdrop.classList.add("open");
+  cardBackdrop.classList.add("open");
+  actionsBackdrop.classList.add("open");
+  positionActionsModal();
 }
 
 function renderGraveList(role){
@@ -1596,14 +1992,15 @@ function renderModal(){
   const isHandModal = modalCard.zone === "hand";
   zoomCardEl.classList.toggle("hand-zoom", isHandModal);
   zoomCardEl.dataset.modalZone = modalCard.zone || "";
-  if (modalEl) modalEl.classList.toggle("hand-modal", isHandModal);
-  if (isHandModal){
-    let targetWidth = 161;
-    let targetHeight = 214;
+  if (modalCardWrapEl) modalCardWrapEl.dataset.zone = modalCard.zone || "";
+  if (modalCardWrapEl) modalCardWrapEl.classList.toggle("hand-modal", isHandModal);
+if (isHandModal){
+    let targetWidth = 483;
+    let targetHeight = 642;
     const sourceRect = modalCard.sourceEl?.getBoundingClientRect?.();
     if (sourceRect?.width && sourceRect?.height){
-      targetWidth = sourceRect.width * 1.75;
-      targetHeight = sourceRect.height * 1.75;
+      targetWidth = sourceRect.width * 5.25 * 0.75;
+      targetHeight = sourceRect.height * 5.25 * 0.75;
     }
     zoomCardEl.style.setProperty("--hand-zoom-width", `${Math.round(targetWidth)}px`);
     zoomCardEl.style.setProperty("--hand-zoom-height", `${Math.round(targetHeight)}px`);
@@ -1698,6 +2095,9 @@ function renderModal(){
   if (modalCard.zone === "grave" || modalCard.zone === "model"){
     modalActionsEl.appendChild(mkBtn("Fechar","",()=>closeModal(true)));
   }
+
+  // Keep the actions modal pinned next to the card after content changes
+  positionActionsModal();
 }
 
 /**
