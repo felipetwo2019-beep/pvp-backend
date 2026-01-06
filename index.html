@@ -215,16 +215,16 @@
     transform-origin: bottom center;
     transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), margin 0.2s, box-shadow 0.2s;
   }
-  #scrGame .hand-card:hover{
+  #scrGame .hand .hand-card:nth-child(1) { z-index: 20; } #scrGame .hand .hand-card:nth-child(2) { z-index: 19; } #scrGame .hand .hand-card:nth-child(3) { z-index: 18; } #scrGame .hand .hand-card:nth-child(4) { z-index: 17; } #scrGame .hand .hand-card:nth-child(5) { z-index: 16; } #scrGame .hand .hand-card:nth-child(6) { z-index: 15; } #scrGame .hand .hand-card:nth-child(7) { z-index: 14; } #scrGame .hand .hand-card:nth-child(8) { z-index: 13; } #scrGame .hand .hand-card:nth-child(9) { z-index: 12; } #scrGame .hand .hand-card:nth-child(10) { z-index: 11; }
+  #scrGame .hand .hand-card:hover{
     transform: scale(1.75);
     z-index: 9999;
     box-shadow: 0 10px 30px rgba(0,0,0,0.8);
   }
-  #scrGame .hand-card:focus,
-  #scrGame .hand-card:focus-visible{
+  #scrGame .hand .hand-card:focus,
+  #scrGame .hand .hand-card:focus-visible{
     z-index: 9999;
   }
-  #scrGame .hand .hand-card:nth-child(1) { z-index: 20; } #scrGame .hand .hand-card:nth-child(2) { z-index: 19; } #scrGame .hand .hand-card:nth-child(3) { z-index: 18; } #scrGame .hand .hand-card:nth-child(4) { z-index: 17; } #scrGame .hand .hand-card:nth-child(5) { z-index: 16; } #scrGame .hand .hand-card:nth-child(6) { z-index: 15; } #scrGame .hand .hand-card:nth-child(7) { z-index: 14; } #scrGame .hand .hand-card:nth-child(8) { z-index: 13; } #scrGame .hand .hand-card:nth-child(9) { z-index: 12; } #scrGame .hand .hand-card:nth-child(10) { z-index: 11; }
 
   /* Top-left type icon overlay (on the card) */
   #scrGame .hand-card .hc-type{
@@ -377,8 +377,8 @@
   .modal.modal-card{ width: calc(420px * 0.5); }
   /* Zone-specific modal sizing */
   .modal.modal-card[data-zone="field"]{
-    width: calc(390px * 0.75);
-    height: calc(508px * 0.75);
+    width: calc(390px * 0.9);
+    height: calc(508px * 1.125);
     max-width: 94vw;
     max-height: 90vh;
   }
@@ -438,8 +438,8 @@
   /* doubled modal size */
   .modal-card .zoom-card{ height: auto;  display:flex; flex-direction:column; }
   .zoom-card[data-modal-zone="field"]{
-    width: calc(362px * 0.75);
-    height: calc(480px * 0.75);
+    width: calc(362px * 0.9);
+    height: calc(480px * 1.125);
     max-width: 94vw;
     max-height: 90vh;
   }
