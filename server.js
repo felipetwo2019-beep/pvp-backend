@@ -678,4 +678,4 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(3000, () => console.log("Rodando na porta 3000"));
+server.listen(49160, () => console.log("Rodando na porta 49160"));
