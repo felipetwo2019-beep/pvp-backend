@@ -133,13 +133,10 @@
 }
 
 /* Game sizing so it never forces page scroll */
-#scrGame .cardbox{ height: 100%; padding-top: 40px; }
-#scrGame .gamewrap{ height: 100%; display:flex; gap: 12px; }
+#scrGame .gamewrap{ height: 100%; display:flex; gap: 12px; overflow: visible; }
 #scrGame .actionlog{ flex: 0 0 clamp(240px, 22vw, 320px); height: 100%; }
 #scrGame .actionlog .loglist{ height: calc(100% - 76px); overflow:auto; }
 #scrGame .gamefield{ flex: 1; min-width: 0; height: 100%; overflow: visible; display:flex; flex-direction: column; }
-#scrGame .hand-wrap{ flex: 1; min-height: 0; display:flex; flex-direction: column; }
-#scrGame .hand{ flex: 1; min-height: 0; overflow: auto; padding-bottom: 6px; }
 
   /* Deck builder list */
   .db-top{ display:flex; gap: 10px; flex-wrap: wrap; align-items:center; justify-content:space-between; }
@@ -182,25 +179,21 @@
   .side-slot { width:70px; height: var(--slot-h); border: 1px solid #555; background: rgba(255,255,255,0.05); font-family: var(--font-title); font-size: 1.3vh; display:flex; align-items:center; justify-content:center; user-select:none; cursor: default; white-space: pre-line; position:relative; border-radius: 0.8vh; color: #888; }
   .side-slot.clickable{ cursor:pointer; outline: 2px solid rgba(77,166,255,0.25); }
   .side-slot .count-badge{ position:absolute; bottom: 6px; right: 6px; background: rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.16); border-radius: 999px; padding: 2px 6px; font-size: 11px; }
-  .card { overflow: visible !important; border-radius: 1vh; position: relative; background: #1a1a1c !important; display: flex; flex-direction: column; cursor: pointer; transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, filter 0.2s ease-in-out; box-shadow: 0 4px 10px rgba(0,0,0,0.5) !important; padding: 0.4vh; border: none !important; transform-style: preserve-3d; width: 100%; height: 100%; }
-  .slot .card { width: 100%; height: 100%; transform: scale(1); z-index: 10; }
-  .slot .card:hover { transform: scale(1.55); z-index: 999 !important; box-shadow: 0 20px 40px rgba(0,0,0,0.95); }
-  .card .top{ position: absolute; top: 0; left: 0; width: 100%; height: 15%; display:flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; background: linear-gradient(90deg, #333, #555, #333); box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
-  .card .name{ font-family: var(--font-title); font-size: 1.28vh; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 90%; text-align: center; line-height: 1.1; font-weight: 700; color: #fff; }
-  .card .type{ font-size: 14px; }
-  .card .tribe{ position: absolute; top: 75%; left: 0; width: 100%; height: 12%; display: flex; align-items: center; justify-content: center; font-size: 1.4vh; text-transform: uppercase; font-weight: 800; color: #fff; z-index: 15; }
-  .card .stats{ position: absolute; bottom: 0; left: 0; width: 100%; height: 15%; background: #000; display:flex; justify-content: space-evenly; align-items: center; border-top: 0.5px solid #000000; z-index: 20; font-family: var(--font-title); font-size: 1.4vh; font-weight: 800; gap: 0.3vh; }
-  .card .stats div{ display:flex; align-items: center; gap: 0.3vh; }
-  .card .stats div:nth-child(1){ color: #ffffff; }
-  .card .stats div:nth-child(2){ color: #006400; }
-  .card .stats div:nth-child(3){ color: #ff3333; }
-  .card .pa{ position:absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.55); color:#fff; border-radius: 999px; font-size: 11px; padding: 2px 6px; font-weight: 700; }
+  #scrGame .card { overflow: visible; border-radius: 1vh; position: relative; background: #1a1a1c; display: flex; flex-direction: column; cursor: pointer; transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, filter 0.2s ease-in-out; box-shadow: 0 4px 10px rgba(0,0,0,0.5); padding: 0.4vh; border: none; transform-style: preserve-3d; width: 100%; height: 100%; }
+  #scrGame .slot .card { width: 100%; height: 100%; transform: scale(1); z-index: 10; }
+  #scrGame .slot .card:hover { transform: scale(1.55); z-index: 999; box-shadow: 0 20px 40px rgba(0,0,0,0.95); }
+  #scrGame .card .top{ position: absolute; top: 0; left: 0; width: 100%; height: 15%; display:flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; background: linear-gradient(90deg, #333, #555, #333); box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+  #scrGame .card .name{ font-family: var(--font-title); font-size: 1.28vh; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 90%; text-align: center; line-height: 1.1; font-weight: 700; color: #fff; }
+  #scrGame .card .type{ font-size: 14px; }
+  #scrGame .card .tribe{ position: absolute; top: 75%; left: 0; width: 100%; height: 12%; display: flex; align-items: center; justify-content: center; font-size: 1.4vh; text-transform: uppercase; font-weight: 800; color: #fff; z-index: 15; text-align: center; }
+  #scrGame .card .stats{ position: absolute; bottom: 0; left: 0; width: 100%; height: 15%; background: #000; display:flex; justify-content: space-evenly; align-items: center; border-top: 0.5px solid #000000; z-index: 20; font-family: var(--font-title); font-size: 1.4vh; font-weight: 800; gap: 0.3vh; }
+  #scrGame .card .stats div{ display:flex; align-items: center; gap: 0.3vh; }
+  #scrGame .card .stats div:nth-child(1){ color: #ffffff; }
+  #scrGame .card .stats div:nth-child(2){ color: #006400; }
+  #scrGame .card .stats div:nth-child(3){ color: #ff3333; }
+  #scrGame .card .pa{ position:absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.55); color:#fff; border-radius: 999px; font-size: 11px; padding: 2px 6px; font-weight: 700; }
 
-  .hand-wrap { margin:10px;  margin-left: 100px; max-width: 900px; position: sticky;
-  bottom: 0;
-  z-index: 50; }
-  .hand { display:flex; justify-content:center; align-items: flex-end; gap: -2vh; flex-wrap: nowrap; }
-  .hand-card{
+  #scrGame .hand-card{
     width: var(--hand-card-w);
     height: var(--hand-card-h);
     margin: 0 -2.5vh;
@@ -222,15 +215,15 @@
     transform-origin: bottom center;
     transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), margin 0.2s, box-shadow 0.2s;
   }
-  .hand-card:hover{
+  #scrGame .hand-card:hover{
     transform: scale(1.75);
-    z-index: 100 !important;
+    z-index: 100;
     box-shadow: 0 10px 30px rgba(0,0,0,0.8);
   }
-  .hand .hand-card:nth-child(1) { z-index: 20; } .hand .hand-card:nth-child(2) { z-index: 19; } .hand .hand-card:nth-child(3) { z-index: 18; } .hand .hand-card:nth-child(4) { z-index: 17; } .hand .hand-card:nth-child(5) { z-index: 16; } .hand .hand-card:nth-child(6) { z-index: 15; } .hand .hand-card:nth-child(7) { z-index: 14; } .hand .hand-card:nth-child(8) { z-index: 13; } .hand .hand-card:nth-child(9) { z-index: 12; } .hand .hand-card:nth-child(10) { z-index: 11; }
+  #scrGame .hand .hand-card:nth-child(1) { z-index: 20; } #scrGame .hand .hand-card:nth-child(2) { z-index: 19; } #scrGame .hand .hand-card:nth-child(3) { z-index: 18; } #scrGame .hand .hand-card:nth-child(4) { z-index: 17; } #scrGame .hand .hand-card:nth-child(5) { z-index: 16; } #scrGame .hand .hand-card:nth-child(6) { z-index: 15; } #scrGame .hand .hand-card:nth-child(7) { z-index: 14; } #scrGame .hand .hand-card:nth-child(8) { z-index: 13; } #scrGame .hand .hand-card:nth-child(9) { z-index: 12; } #scrGame .hand .hand-card:nth-child(10) { z-index: 11; }
 
   /* Top-left type icon overlay (on the card) */
-  .hand-card .hc-type{
+  #scrGame .hand-card .hc-type{
     position: absolute;
     top: 0.4vh;
     left: 0.4vh;
@@ -250,7 +243,7 @@
     pointer-events: none;
   }
 
-  .hand-card .hc-head{
+  #scrGame .hand-card .hc-head{
     position: absolute;
     top: 0;
     left: 0;
@@ -264,7 +257,7 @@
     box-shadow: 0 2px 5px rgba(0,0,0,0.5);
     z-index: 10;
   }
-  .hand-card .name{
+  #scrGame .hand-card .name{
     font-family: var(--font-title);
     font-weight: 700;
     font-size: 1.28vh;
@@ -279,29 +272,8 @@
   }
 
   /* Art area grows, stats stay at the bottom */
-  .hand-card .art{
-    position: absolute;
-    top: 15%;
-    left: 0;
-    width: 100%;
-    height: 70%;
-    border-radius: 0;
-    overflow: hidden;
-    background: #000;
-  }
-  .hand-card .art img{
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.10);
-    box-shadow: 0 8px 18px rgba(0,0,0,0.25);
-    opacity: .95;
-    display:block;
-  }
-
   /* Stars overlay: vertical, over the art (top-right) */
-  .hand-card .hc-stars{
+  #scrGame .hand-card .hc-stars{
     position: absolute;
     top: 16%;
     right: 0.2vh;
@@ -326,7 +298,7 @@
   }
 
   /* Tribe centered */
-  .hand-card .tribe{
+  #scrGame .hand-card .tribe{
     position: absolute;
     top: 75%;
     left: 0;
@@ -343,7 +315,7 @@
   }
 
   /* Stats INSIDE the card, pinned to internal bottom */
-  .hand-card .stats{
+  #scrGame .hand-card .stats{
     position: absolute;
     bottom: 0;
     left: 0;
@@ -359,13 +331,13 @@
     font-weight: 800;
     z-index: 20;
   }
-  .hand-card .stats div:nth-child(1){ color: #ffffff; }
-  .hand-card .stats div:nth-child(2){ color: #006400; }
-  .hand-card .stats div:nth-child(3){ color: #ff3333; }
-  .enemy-area { position: relative; display: inline-block; }
-  .enemy-hand-wrap { position: absolute; top: -8vh; left: 50%; transform: translateX(-50%); display: flex; gap: 0; align-items: center; justify-content: center; pointer-events: none; width: 100%; height: 10vh; z-index: 50; }
-  .enemy-hand-card { width: var(--board-card-w); height: var(--board-card-h); transform: scale(0.5); margin: 0 -2vh; background: #111; border: 1px solid #000; border-radius: 0.6vh; box-shadow: none; background: repeating-linear-gradient(45deg, #1a1a1a, #1a1a1a 10px, #222 10px, #222 20px); }
-  .enemy-hand-count { font-size: 1.6vh; opacity: 0.8; margin-left: 1vh; }
+  #scrGame .hand-card .stats div:nth-child(1){ color: #ffffff; }
+  #scrGame .hand-card .stats div:nth-child(2){ color: #006400; }
+  #scrGame .hand-card .stats div:nth-child(3){ color: #ff3333; }
+  #scrGame .enemy-area { position: relative; display: inline-block; }
+  #scrGame .enemy-hand-wrap { position: absolute; top: -8vh; left: 50%; transform: translateX(-50%); display: flex; gap: 0; align-items: center; justify-content: center; pointer-events: none; width: 100%; height: 10vh; z-index: 50; }
+  #scrGame .enemy-hand-card { width: var(--board-card-w); height: var(--board-card-h); transform: scale(0.5); margin: 0 -2vh; background: #111; border: 1px solid #000; border-radius: 0.6vh; box-shadow: none; background: repeating-linear-gradient(45deg, #1a1a1a, #1a1a1a 10px, #222 10px, #222 20px); }
+  #scrGame .enemy-hand-count { font-size: 1.6vh; opacity: 0.8; margin-left: 1vh; }
 
   .modal-backdrop{ position: fixed; inset: 0; background: rgba(0,0,0,0.65); display:none; align-items: center; justify-content: center; z-index: 999; }
   .modal-backdrop.open{ display:flex; }
@@ -503,8 +475,7 @@
   }
 
   /* Field card layout tweaks */
-  .card .art{ position: absolute; top: 15%; left: 0; width: 100%; height: 70%; background: #000; overflow: hidden; }
-  .card .type.type-overlay{
+  #scrGame .card .type.type-overlay{
     position: absolute;
     top: 6px;
     right: 6px;
@@ -523,16 +494,27 @@
   }
 
   /* === Card Art (center image) === */
-  .card .art,
-  .hand-card .art,
+  #scrGame .card .art,
+  #scrGame .hand-card .art,
   .zoom-card .art{
     display:flex;
     align-items:center;
     justify-content:center;
     width: 100%;
   }
-  .card .art img,
-  .hand-card .art img{
+  #scrGame .card .art,
+  #scrGame .hand-card .art{
+    position: absolute;
+    top: 15%;
+    left: 0;
+    width: 100%;
+    height: 70%;
+    background: #000;
+    overflow: hidden;
+    border-radius: 0;
+  }
+  #scrGame .card .art img,
+  #scrGame .hand-card .art img{
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -542,8 +524,8 @@
     opacity: 1;
     transition: transform 0.5s;
   }
-  .card:hover .art img,
-  .hand-card:hover .art img{
+  #scrGame .card:hover .art img,
+  #scrGame .hand-card:hover .art img{
     transform: scale(1.1);
   }
   .zoom-card .art{ flex:1 1 auto; min-height: 180px; margin: 10px 0; position: relative; }
@@ -557,20 +539,8 @@
     opacity: .98;
   }
   /* subtle vignette for readability */
-  .card .art::after,
-  .hand-card .art::after,
-  .zoom-card .art::after{
-    content:"";
-    position:absolute;
-    inset:0;
-    pointer-events:none;
-  }
-
-  .card .art,
-  .hand-card .art{ position: absolute; }
-  .zoom-card .art{ position: relative; }
-  .card .art::after,
-  .hand-card .art::after,
+  #scrGame .card .art::after,
+  #scrGame .hand-card .art::after,
   .zoom-card .art::after{
     content:"";
     position:absolute;
@@ -586,7 +556,9 @@
   #scrGame .cardbox{
     position: relative;
     overflow: visible;
-    padding-bottom: 110px;
+    height: 100%;
+    padding-top: 40px;
+    padding-bottom: 140px;
     background:
       radial-gradient(circle at 50% 40%, rgba(80, 120, 255, 0.12), transparent 55%),
       radial-gradient(circle at 20% 80%, rgba(4, 211, 97, 0.12), transparent 60%),
@@ -616,77 +588,33 @@
 
   /* Hand overlay (on top of the field background) */
   #scrGame .hand-wrap{
-    position: absolute;
+    position: fixed;
     left: 50%;
-    bottom: 12px;
+    bottom: 0;
     transform: translateX(-50%);
-    z-index: 20;          /* above the field background */
+    z-index: 999;          /* above map/field */
     margin: 0;
+    padding: 0 10px calc(6px + env(safe-area-inset-bottom, 0px));
+    width: min(1100px, calc(100% - 40px));
     max-width: min(1100px, calc(100% - 40px));
     pointer-events: auto;
-  }
-
-  /* Remove hand scroll: show all cards without scrollbar */
-  #scrGame .hand-wrap{ height: auto; }
-  #scrGame .hand{
-    overflow: visible !important;
-    height: auto !important;
-    max-height: none !important;
-    flex: 0 0 auto !important;
-    padding-bottom: 0 !important;
-    justify-content: center;
-    flex-wrap: wrap;
-  }
-
-
-  /* === Overrides (Jan 2026): hand fixed to bottom + tribe centered === */
-
-  /* Ensure game containers never clip the hand overlay */
-  body{ overflow:hidden; }
-  #scrGame .cardbox{ overflow: visible !important; }
-  #scrGame .gamewrap,
-  #scrGame .gamefield{ overflow: visible !important; }
-
-  /* Player hand: fixed to viewport bottom, over the black background */
-  #scrGame .hand-wrap{
-    position: fixed !important;
-    left: 50% !important;
-    bottom: 0 !important;
-    transform: translateX(-50%) !important;
-
-    width: min(1100px, calc(100% - 40px)) !important;
-    max-width: min(1100px, calc(100% - 40px)) !important;
-
-    margin: 0 !important;
-    padding: 0 10px calc(6px + env(safe-area-inset-bottom, 0px)) !important;
-
-    z-index: 999 !important;          /* above map/field */
-    pointer-events: auto !important;  /* still clickable */
     background: linear-gradient(to top, #09090a 10%, transparent);
     height: 21vh;
     display: flex;
     align-items: flex-end;
   }
 
-  /* Keep boards clickable above reserved spacing, but never cover the hand */
-  #scrGame .cardbox{
-    padding-bottom: 140px !important; /* reserve interaction space behind the hand */
-  }
-
-  /* Hand layout should never be cut off by internal scrolling */
   #scrGame .hand{
-    overflow: visible !important;
-    height: auto !important;
-    max-height: none !important;
-    flex: 0 0 auto !important;
-    justify-content: center !important;
-    flex-wrap: wrap !important;
-  }
-
-  /* Center tribe text on field cards */
-  .card .tribe{
-    text-align: center !important;
-    width: 100% !important;
+    display:flex;
+    justify-content:center;
+    align-items: flex-end;
+    gap: -2vh;
+    overflow: visible;
+    height: auto;
+    max-height: none;
+    flex: 0 0 auto;
+    padding-bottom: 0;
+    flex-wrap: wrap;
   }
 
 </style>
