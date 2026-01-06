@@ -217,8 +217,12 @@
   }
   #scrGame .hand-card:hover{
     transform: scale(1.75);
-    z-index: 1000;
+    z-index: 9999;
     box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+  }
+  #scrGame .hand-card:focus,
+  #scrGame .hand-card:focus-visible{
+    z-index: 9999;
   }
   #scrGame .hand .hand-card:nth-child(1) { z-index: 20; } #scrGame .hand .hand-card:nth-child(2) { z-index: 19; } #scrGame .hand .hand-card:nth-child(3) { z-index: 18; } #scrGame .hand .hand-card:nth-child(4) { z-index: 17; } #scrGame .hand .hand-card:nth-child(5) { z-index: 16; } #scrGame .hand .hand-card:nth-child(6) { z-index: 15; } #scrGame .hand .hand-card:nth-child(7) { z-index: 14; } #scrGame .hand .hand-card:nth-child(8) { z-index: 13; } #scrGame .hand .hand-card:nth-child(9) { z-index: 12; } #scrGame .hand .hand-card:nth-child(10) { z-index: 11; }
 
@@ -372,7 +376,12 @@
   }
   .modal.modal-card{ width: calc(420px * 0.5); }
   /* Zone-specific modal sizing */
-  .modal.modal-card[data-zone="field"]{ width: calc(390px * 0.5); height: calc(508px * 0.5); }
+  .modal.modal-card[data-zone="field"]{
+    width: calc(390px * 0.75);
+    height: calc(508px * 0.75);
+    max-width: 94vw;
+    max-height: 90vh;
+  }
   /* Hand modal size is driven by --hand-zoom-width/height on .zoom-card.hand-zoom */
   .modal.modal-card[data-zone="hand"]{ width: fit-content; }
 
@@ -428,7 +437,12 @@
 
   /* doubled modal size */
   .modal-card .zoom-card{ height: auto;  display:flex; flex-direction:column; }
-  .zoom-card[data-modal-zone="field"]{ width: calc(362px * 0.5); height: calc(480px * 0.5); }
+  .zoom-card[data-modal-zone="field"]{
+    width: calc(362px * 0.75);
+    height: calc(480px * 0.75);
+    max-width: 94vw;
+    max-height: 90vh;
+  }
 .zoom-card{ height: auto; border-radius: 14px; background: #4da6ff; color:#052033; padding: 12px; box-sizing: border-box; display:flex; flex-direction: column; justify-content: space-between; position: relative;  display:flex; flex-direction:column; }
   .zoom-card.hand-zoom{
     width: calc(var(--hand-zoom-width, 161px) * 0.5);
@@ -619,6 +633,14 @@
     flex: 0 0 auto;
     padding-bottom: 0;
     flex-wrap: wrap;
+  }
+
+  /* Field actions panel: flush to the card modal without visible gap */
+  #cardBackdrop:has(.modal-card[data-zone="field"]) ~ #actionsBackdrop .modal-shell-actions{
+    gap: 0;
+  }
+  #cardBackdrop:has(.modal-card[data-zone="field"]) ~ #actionsBackdrop .modal-side{
+    margin-left: -1px;
   }
 
 </style>
