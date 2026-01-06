@@ -4,8 +4,46 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Card Game PvP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
 <style>
-  body { background:#0f0f10; color:#eee; font-family: Arial, sans-serif; margin:0; height:100vh; overflow:hidden; }
+  :root {
+    --bg-dark: #121214;
+    --bg-panel: #202024;
+    --primary: #8257e6;
+    --secondary: #04d361;
+    --neon-green: #39ff14;
+    --neon-cyan: #00ffff;
+    --neon-red: #ff4444;
+    --danger: #e83f5b;
+    --text: #ffffff;
+    --gold: #ffaa00;
+    --blue: #4da6ff;
+    --gray: #a8a8b3;
+    --util: #d633d6;
+
+    --r-common: #000000;
+    --r-rare: #000000;
+    --r-legendary: #000000;
+    --r-utility: #000000;
+    --r-epic: #000000;
+
+    --board-card-h: 16vh;
+    --board-card-w: 12vh;
+    --hand-card-h: 20vh;
+    --hand-card-w: 13.5vh;
+
+    --font-title: 'Oswald', sans-serif;
+    --font-body: 'Roboto Condensed', sans-serif;
+
+    --ui-glow: rgba(130, 87, 230, 0.35);
+    --ui-glow-strong: rgba(130, 87, 230, 0.6);
+    --shadow-deep: 0 18px 35px rgba(0,0,0,0.65);
+  }
+
+  * { box-sizing: border-box; font-family: var(--font-body); }
+  body { background:#0f0f10; color:#eee; margin:0; height:100vh; overflow:hidden; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
   header { display: none; }
   header .brand{ font-weight: 900; letter-spacing: .5px; }
   header .user{ font-size: 13px; opacity: .9; }
@@ -118,9 +156,16 @@
   .smallbtn{ padding: 7px 9px; font-size: 12px; border-radius: 10px; }
 
   /* Lobby & Game from previous build (compact) */
-  .board { --slot-w: 112px; --slot-h: 135px; display:grid; grid-template-columns: 70px repeat(5, var(--slot-w)); grid-template-rows: repeat(2, var(--slot-h)); gap: 6px; justify-content:center; }
-  .slot { width: var(--slot-w); height: var(--slot-h); border:1px solid rgba(255,255,255,0.22); border-radius: 12px; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; position:relative; box-sizing: border-box; padding: 6px; }
-  .slot.targetable{ border-color: rgba(255, 214, 0, 0.85); box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.15); }
+  .board { --slot-w: var(--board-card-w); --slot-h: var(--board-card-h); display:grid; grid-template-columns: 70px repeat(5, var(--slot-w)); grid-template-rows: repeat(2, var(--slot-h)); gap: 6px; justify-content:center; }
+  .slot { width: var(--slot-w); height: var(--slot-h); border:1px solid rgba(255,255,255,0.22); border-radius: 0.8vh; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; position:relative; box-sizing: border-box; padding: 0.4vh; background: rgba(0,0,0,0.2); box-shadow: inset 0 0 10px #000, 0 6px 18px rgba(0,0,0,0.35); transition: all 0.2s ease; }
+  .slot.targetable{ border-color: rgba(255, 214, 0, 0.85); box-shadow: inset 0 0 12px rgba(0,255,255,0.25), 0 0 12px rgba(0,255,255,0.25); animation: slotPulse 1.2s ease-in-out infinite; }
+  .board .slot:nth-of-type(-n+5){ border: 1px solid rgba(255, 0, 0, 0.2); }
+  .board .slot:nth-of-type(n+6){ border: 1px solid rgba(0, 255, 255, 0.3); background: rgba(0,255,255,0.05); }
+  .slot:hover { border-color: #fff; }
+  @keyframes slotPulse {
+    0%, 100% { box-shadow: inset 0 0 12px rgba(0,255,255,0.25), 0 0 12px rgba(0,255,255,0.25); }
+    50% { box-shadow: inset 0 0 16px rgba(255,255,255,0.35), 0 0 16px rgba(0,255,255,0.45); }
+  }
   
   /* Empty slot styling (field only) */
   #myBoard .slot.empty{
@@ -134,29 +179,33 @@
   /* Non-empty slots keep subtle frame */
   #myBoard .slot:not(.empty){ border-color: rgba(255,255,255,0.22); }
   #enemyBoard .slot:not(.empty){ border-color: rgba(255,255,255,0.22); }
-.side-slot { width:70px; height: var(--slot-h); border:2px solid #888; background:#222; font-size:12px; display:flex; align-items:center; justify-content:center; user-select:none; cursor: default; white-space: pre-line; position:relative; }
+  .side-slot { width:70px; height: var(--slot-h); border: 1px solid #555; background: rgba(255,255,255,0.05); font-family: var(--font-title); font-size: 1.3vh; display:flex; align-items:center; justify-content:center; user-select:none; cursor: default; white-space: pre-line; position:relative; border-radius: 0.8vh; color: #888; }
   .side-slot.clickable{ cursor:pointer; outline: 2px solid rgba(77,166,255,0.25); }
   .side-slot .count-badge{ position:absolute; bottom: 6px; right: 6px; background: rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.16); border-radius: 999px; padding: 2px 6px; font-size: 11px; }
-  .card { position: relative; width:100%; height:100%; background:#4da6ff; border-radius:10px; display:flex; flex-direction: column; justify-content: flex-start; color:#052033; font-weight:bold; font-size:11px; padding: 4px; box-sizing: border-box; overflow:hidden; }
-  .card .top{ display:flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 2px; }
-  .card .name{ font-size: 11px; font-weight: 800; line-height: 1.05; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card { overflow: visible !important; border-radius: 1vh; position: relative; background: #1a1a1c !important; display: flex; flex-direction: column; cursor: pointer; transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, filter 0.2s ease-in-out; box-shadow: 0 4px 10px rgba(0,0,0,0.5) !important; padding: 0.4vh; border: none !important; transform-style: preserve-3d; width: 100%; height: 100%; }
+  .slot .card { width: 100%; height: 100%; transform: scale(1); z-index: 10; }
+  .slot .card:hover { transform: scale(1.55); z-index: 999 !important; box-shadow: 0 20px 40px rgba(0,0,0,0.95); }
+  .card .top{ position: absolute; top: 0; left: 0; width: 100%; height: 15%; display:flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; background: linear-gradient(90deg, #333, #555, #333); box-shadow: 0 2px 5px rgba(0,0,0,0.5); }
+  .card .name{ font-family: var(--font-title); font-size: 1.28vh; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 90%; text-align: center; line-height: 1.1; font-weight: 700; color: #fff; }
   .card .type{ font-size: 14px; }
-  .card .tribe{ font-size: 10px; opacity: 0.85; line-height: 1.05; margin-top: 2px; text-align:left; }
-  .card .stats{ display:flex; justify-content: space-between; gap: 6px; font-size: 11px; background: rgba(255,255,255,0.28); border-radius: 8px; padding: 3px 6px; margin-top: auto; width: 100%; box-sizing: border-box; }
+  .card .tribe{ position: absolute; top: 75%; left: 0; width: 100%; height: 12%; display: flex; align-items: center; justify-content: center; font-size: 1.4vh; text-transform: uppercase; font-weight: 800; color: #fff; z-index: 15; }
+  .card .stats{ position: absolute; bottom: 0; left: 0; width: 100%; height: 15%; background: #000; display:flex; justify-content: space-evenly; align-items: center; border-top: 0.5px solid #000000; z-index: 20; font-family: var(--font-title); font-size: 1.4vh; font-weight: 800; gap: 0.3vh; }
+  .card .stats div{ display:flex; align-items: center; gap: 0.3vh; }
+  .card .stats div:nth-child(1){ color: #ffffff; }
+  .card .stats div:nth-child(2){ color: #006400; }
+  .card .stats div:nth-child(3){ color: #ff3333; }
   .card .pa{ position:absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.55); color:#fff; border-radius: 999px; font-size: 11px; padding: 2px 6px; font-weight: 700; }
 
   .hand-wrap { margin:10px;  margin-left: 100px; max-width: 900px; position: sticky;
   bottom: 0;
   z-index: 50; }
-  .hand { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
+  .hand { display:flex; justify-content:center; align-items: flex-end; gap: -2vh; flex-wrap: nowrap; }
   .hand-card{
-    /* bigger hand cards, but responsive and never forcing vertical page scroll */
-    width: clamp(108px, 9vw, 140px);
-    height: clamp(168px, 20vh, 220px);
-
-    border: 2px solid #666;
-    border-radius: 14px;
-    background: #222;
+    width: var(--hand-card-w);
+    height: var(--hand-card-h);
+    margin: 0 -2.5vh;
+    border-radius: 1vh;
+    background: #1a1a1c;
 
     cursor: pointer;
     user-select: none;
@@ -166,20 +215,29 @@
     flex-direction: column;
     gap: 6px;
 
-    padding: 8px;
+    padding: 0.4vh;
     box-sizing: border-box;
     overflow: hidden;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    transform-origin: bottom center;
+    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), margin 0.2s, box-shadow 0.2s;
   }
+  .hand-card:hover{
+    transform: scale(1.75);
+    z-index: 100 !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+  }
+  .hand .hand-card:nth-child(1) { z-index: 20; } .hand .hand-card:nth-child(2) { z-index: 19; } .hand .hand-card:nth-child(3) { z-index: 18; } .hand .hand-card:nth-child(4) { z-index: 17; } .hand .hand-card:nth-child(5) { z-index: 16; } .hand .hand-card:nth-child(6) { z-index: 15; } .hand .hand-card:nth-child(7) { z-index: 14; } .hand .hand-card:nth-child(8) { z-index: 13; } .hand .hand-card:nth-child(9) { z-index: 12; } .hand .hand-card:nth-child(10) { z-index: 11; }
 
   /* Top-left type icon overlay (on the card) */
   .hand-card .hc-type{
     position: absolute;
-    top: 6px;
-    left: 6px;
+    top: 0.4vh;
+    left: 0.4vh;
     z-index: 5;
 
-    width: 22px;
-    height: 22px;
+    width: 2.5vh;
+    height: 2.5vh;
     display: grid;
     place-items: center;
 
@@ -193,27 +251,43 @@
   }
 
   .hand-card .hc-head{
-    padding-left: 28px; /* leave room for type icon */
-    padding-right: 2px;
-    padding-top: 0;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 15%;
+    padding: 0 0.6vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(90deg, #333, #555, #333);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    z-index: 10;
   }
   .hand-card .name{
-    font-weight: 900;
-    font-size: 11px;
-    line-height: 1.05;
+    font-family: var(--font-title);
+    font-weight: 700;
+    font-size: 1.28vh;
+    line-height: 1.1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    width: 90%;
+    text-align: center;
+    text-transform: uppercase;
+    color: #fff;
   }
 
   /* Art area grows, stats stay at the bottom */
   .hand-card .art{
-    position: relative;
-    flex: 1 1 auto;
-    min-height: 0;
-    margin: 0;
-    border-radius: 12px;
+    position: absolute;
+    top: 15%;
+    left: 0;
+    width: 100%;
+    height: 70%;
+    border-radius: 0;
     overflow: hidden;
+    background: #000;
   }
   .hand-card .art img{
     width: 100%;
@@ -229,54 +303,69 @@
   /* Stars overlay: vertical, over the art (top-right) */
   .hand-card .hc-stars{
     position: absolute;
-    top: 6px;
-    right: 6px;
+    top: 16%;
+    right: 0.2vh;
     z-index: 4;
 
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 0.2vh;
 
-    background: rgba(0,0,0,0.45);
-    border: 1px solid rgba(255,255,255,0.18);
-    border-radius: 10px;
-    padding: 4px 6px;
+    background: transparent;
+    border: none;
+    padding: 0;
 
-    font-size: 11px;
+    font-size: 0.75vh;
     line-height: 1;
-    color: #fff;
+    color: #ffd700;
+    text-shadow: 1px 1px 0 #000;
     pointer-events: none;
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+    font-weight: bold;
   }
 
   /* Tribe centered */
   .hand-card .tribe{
-    font-size: 10px;
-    opacity: 0.85;
-    line-height: 1.05;
-    text-align: center;
+    position: absolute;
+    top: 75%;
+    left: 0;
     width: 100%;
-    margin-top: 0;
+    height: 12%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4vh;
+    text-transform: uppercase;
+    font-weight: 800;
+    color: #fff;
+    z-index: 10;
   }
 
   /* Stats INSIDE the card, pinned to internal bottom */
   .hand-card .stats{
-    margin-top: auto;
-    background: rgba(255,255,255,0.18);
-    border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 12px;
-    padding: 4px 8px;
-
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 15%;
+    background: #000;
     display: flex;
-    justify-content: space-between;
-    gap: 8px;
-
-    font-size: 11px;
+    justify-content: space-evenly;
+    align-items: center;
+    border-top: 0.5px solid #000000;
+    font-family: var(--font-title);
+    font-size: 1.4vh;
     font-weight: 800;
+    z-index: 20;
   }
+  .hand-card .stats div:nth-child(1){ color: #ffffff; }
+  .hand-card .stats div:nth-child(2){ color: #006400; }
+  .hand-card .stats div:nth-child(3){ color: #ff3333; }
   .enemy-area { position: relative; display: inline-block; }
-  .enemy-hand-wrap { position: absolute; top: -70px; right: 85px; display: flex; gap: 6px; align-items: center; justify-content: flex-end; pointer-events: none; }
-  .enemy-hand-card { width: 45px; height: 60px; border: 2px solid #555; border-radius: 8px; background: linear-gradient(135deg, #2a2a2a, #1a1a1a); }
-  .enemy-hand-count { font-size: 12px; opacity: 0.8; margin-left: 6px; }
+  .enemy-hand-wrap { position: absolute; top: -8vh; left: 50%; transform: translateX(-50%); display: flex; gap: 0; align-items: center; justify-content: center; pointer-events: none; width: 100%; height: 10vh; z-index: 50; }
+  .enemy-hand-card { width: var(--board-card-w); height: var(--board-card-h); transform: scale(0.5); margin: 0 -2vh; background: #111; border: 1px solid #000; border-radius: 0.6vh; box-shadow: none; background: repeating-linear-gradient(45deg, #1a1a1a, #1a1a1a 10px, #222 10px, #222 20px); }
+  .enemy-hand-count { font-size: 1.6vh; opacity: 0.8; margin-left: 1vh; }
 
   .modal-backdrop{ position: fixed; inset: 0; background: rgba(0,0,0,0.65); display:none; align-items: center; justify-content: center; z-index: 999; }
   .modal-backdrop.open{ display:flex; }
@@ -414,7 +503,7 @@
   }
 
   /* Field card layout tweaks */
-  .card .art{ flex: 1 1 auto; min-height: 0; position: relative; }
+  .card .art{ position: absolute; top: 15%; left: 0; width: 100%; height: 70%; background: #000; overflow: hidden; }
   .card .type.type-overlay{
     position: absolute;
     top: 6px;
@@ -440,29 +529,24 @@
     display:flex;
     align-items:center;
     justify-content:center;
-    margin: 3px 0;
     width: 100%;
   }
-  .card .art img{
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 8px;
-    border: 1px solid rgba(0,0,0,0.18);
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
-    opacity: .95;
-  }
+  .card .art img,
   .hand-card .art img{
     width: 100%;
     height: 100%;
     object-fit: cover;
-    border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.10);
-    box-shadow: 0 8px 18px rgba(0,0,0,0.25);
-    opacity: .95;
-    display:block;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    opacity: 1;
+    transition: transform 0.5s;
   }
-  .zoom-card .art{ flex:1 1 auto; min-height: 180px; margin: 10px 0; }
+  .card:hover .art img,
+  .hand-card:hover .art img{
+    transform: scale(1.1);
+  }
+  .zoom-card .art{ flex:1 1 auto; min-height: 180px; margin: 10px 0; position: relative; }
   .zoom-card.hand-zoom .art{ flex:1 1 auto; min-height: 200px; }
   .zoom-card .art img{ width:100%; height:100%; object-fit:cover;
     object-fit: contain;
@@ -483,7 +567,7 @@
   }
 
   .card .art,
-  .hand-card .art,
+  .hand-card .art{ position: absolute; }
   .zoom-card .art{ position: relative; }
   .card .art::after,
   .hand-card .art::after,
@@ -501,8 +585,29 @@
   /* === Layout: reduce gap between boards + overlay hand === */
   #scrGame .cardbox{
     position: relative;
-    overflow: visible; /* allow hand to overlap field container */
-    padding-bottom: 110px; /* reserve space so hand doesn't cover board interactions too much */
+    overflow: visible;
+    padding-bottom: 110px;
+    background:
+      radial-gradient(circle at 50% 40%, rgba(80, 120, 255, 0.12), transparent 55%),
+      radial-gradient(circle at 20% 80%, rgba(4, 211, 97, 0.12), transparent 60%),
+      linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0) 45%),
+      radial-gradient(circle at center, #2a2a30 0%, #09090a 100%);
+  }
+  #scrGame .cardbox::before{
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.02), rgba(255,255,255,0.02) 6px, rgba(255,255,255,0.01) 6px, rgba(255,255,255,0.01) 12px);
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  #scrGame .cardbox::after{
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at center, rgba(0,0,0,0) 45%, rgba(0,0,0,0.75) 100%);
+    pointer-events: none;
   }
 
   /* Bring the two boards closer (enemy + my) */
@@ -553,10 +658,14 @@
     max-width: min(1100px, calc(100% - 40px)) !important;
 
     margin: 0 !important;
-    padding: 0 10px calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+    padding: 0 10px calc(6px + env(safe-area-inset-bottom, 0px)) !important;
 
     z-index: 999 !important;          /* above map/field */
     pointer-events: auto !important;  /* still clickable */
+    background: linear-gradient(to top, #09090a 10%, transparent);
+    height: 21vh;
+    display: flex;
+    align-items: flex-end;
   }
 
   /* Keep boards clickable above reserved spacing, but never cover the hand */
