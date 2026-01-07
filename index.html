@@ -1,1 +1,193 @@
+<!DOCTYPE html>
+<!-- Decisão: L-10 usa o PRIMEIRO conjunto (sobrevida). O segundo conjunto (troca de posição + bêbado) foi ignorado por conflito de numeração. -->
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Etheria: Card Battle TCG - Visual Update</title>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- SCREEN 1: MAIN MENU -->
+    <div id="main-menu" class="screen-section" style="display: flex;">
+        <div class="menu-container">
+            <div class="game-logo">ETHERIA</div>
+            <button class="menu-btn" onclick="alert('Funcionalidade em desenvolvimento!')">Loja</button>
+            <button class="menu-btn" onclick="alert('Funcionalidade em desenvolvimento!')">Inventário</button>
+            <button class="menu-btn" onclick="navigateTo('builder')">Jogar Online</button>
+        </div>
+    </div>
+
+    <!-- SCREEN 2: DECK BUILDER -->
+    <div id="deck-builder-screen" class="screen-section">
+        <div class="builder-header">
+            <div class="builder-title">INVENTÁRIO DE CARTAS</div>
+            <div class="builder-controls">
+                <div class="deck-counter">DECK: <span id="builder-count" style="color:var(--danger)">0</span> / 50</div>
+                <button class="btn btn-skill" style="padding: 1vh 2vh; font-size: 1.5vh;" onclick="autoFillDeck()">SELECIONAR TODAS</button>
+                <button id="btn-start-match" class="btn btn-summon" style="padding: 1vh 2vh; font-size: 1.5vh;" disabled onclick="finishDeckBuilder()">IR PARA O LOBBY</button>
+                <button class="btn btn-cancel" style="padding: 1vh 2vh; font-size: 1.5vh;" onclick="navigateTo('menu')">VOLTAR</button>
+            </div>
+        </div>
+
+        <!-- NEW FILTER BAR -->
+        <div class="filter-bar">
+            <div class="filter-input-wrapper">
+                <span class="filter-icon-search">🔍</span>
+                <input type="text" id="filter-search" class="filter-input" placeholder="Buscar Carta..." oninput="filterInventory()">
+            </div>
+
+            <div class="filter-group">
+                <select id="filter-archetype" class="filter-select" onchange="filterInventory()">
+                    <option value="all">Arquétipo: Todos</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <select id="filter-rarity" class="filter-select" onchange="filterInventory()">
+                    <option value="all">Raridade: Todas</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <select id="filter-tribe" class="filter-select" onchange="filterInventory()">
+                    <option value="all">Tribo: Todas</option>
+                </select>
+            </div>
+        </div>
+        <!-- END FILTER BAR -->
+
+        <div id="builder-grid"></div>
+
+        <!-- BUILDER SPECIFIC OVERLAY -->
+        <div id="builder-overlay"></div>
+    </div>
+
+    <!-- SCREEN 3: LOBBY -->
+    <div id="lobby-screen" class="screen-section">
+        <div class="menu-container" style="width: 70vh; gap: 1.5vh;">
+            <div class="game-logo" style="font-size: 4vh;">LOBBY ONLINE</div>
+            <div style="display:flex; gap: 1vh;">
+                <input id="player-name" class="filter-input" style="flex:1; padding-left: 1vh;" placeholder="Seu nome">
+                <button class="menu-btn" style="flex:0 0 auto;" onclick="refreshLobby()">Atualizar</button>
+            </div>
+            <div style="display:flex; gap: 1vh;">
+                <input id="room-name" class="filter-input" style="flex:1; padding-left: 1vh;" placeholder="Nome da sala">
+                <button class="menu-btn" style="flex:0 0 auto;" onclick="createRoom()">Criar sala</button>
+            </div>
+            <div id="lobby-rooms" style="max-height: 40vh; overflow-y: auto; border: 1px solid #333; padding: 1vh;"></div>
+            <button class="menu-btn" onclick="navigateTo('builder')">Voltar ao Deck</button>
+        </div>
+    </div>
+
+    <!-- SCREEN 4: ROOM -->
+    <div id="room-screen" class="screen-section">
+        <div class="menu-container" style="width: 60vh; gap: 1.5vh;">
+            <div class="game-logo" style="font-size: 4vh;">SALA</div>
+            <div id="room-info" style="font-size: 2vh; color: var(--gray);"></div>
+            <div id="room-players" style="display:flex; flex-direction:column; gap: 1vh;"></div>
+            <div style="display:flex; gap: 1vh;">
+                <button id="btn-ready" class="menu-btn" onclick="toggleReady()">PRONTO</button>
+                <button class="menu-btn" onclick="leaveRoom()">SAIR</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCREEN 5: GAME VIEW -->
+    <div id="game-view" class="screen-section">
+
+        <!-- Arena Cinematográfica -->
+        <div id="arena-overlay">
+            <div id="arena-vfx-layer" aria-hidden="true"></div>
+            <div class="arena-content">
+                <div id="arena-attacker" class="arena-card-slot"></div>
+                <div class="arena-visuals">
+                    <div id="arena-effect-container" class="effect-overlay"></div>
+                </div>
+                <div id="arena-target" class="arena-card-slot"></div>
+            </div>
+            <div id="arena-log">O Batalha Começa!</div>
+</div>
+
+        <!-- Card Interaction Overlay (Inspection) -->
+        <div id="overlay"></div>
+        <div id="dice-overlay" aria-hidden="true">
+            <div class="dice-roll">
+                <div class="dice-icon">🎲</div>
+                <div class="dice-number">1</div>
+            </div>
+        </div>
+        <div id="suit-overlay" aria-hidden="true"></div>
+        <div id="graveyard-overlay" aria-hidden="true"></div>
+
+        <div id="game-container">
+            <!-- Opponent Hand -->
+            <div class="hand-area opponent-hand" id="opp-hand"></div>
+
+            <!-- Battlefield with Logs -->
+            <div id="battlefield">
+                <div id="log-player" class="battle-log"></div>
+                <div id="info-panel" class="info-panel">
+                    <div class="info-panel-placeholder">Clique com o botão direito em uma carta no campo para ver detalhes.</div>
+                </div>
+
+                <!-- Painel Esquerdo -->
+                <div class="side-panel">
+                    <div class="deck deck-visual" id="opp-deck">DECK</div>
+                    <div class="deck deck-visual" id="player-deck">DECK</div>
+                </div>
+
+                <!-- Grid -->
+                <div id="board-grid"></div>
+
+                <!-- Painel Direito -->
+                <div class="side-panel">
+                    <div class="graveyard" id="opp-gy">Opp GY</div>
+                    <div class="graveyard" id="player-gy">Seu GY</div>
+                </div>
+            </div>
+
+            <!-- HUDs -->
+            <div id="hud-opponent" class="hud-panel">
+                <span style="color: var(--danger)">OPONENTE</span>
+                <span id="opp-hp-display">HP: 1000</span>
+                <span id="opp-def-display">DEF: 20</span>
+                <span id="opp-pi-display">⭐ PI: 5</span>
+            </div>
+
+            <div id="hud-player" class="hud-panel">
+                <span style="color: var(--secondary)">VOCÊ</span>
+                <span id="player-hp-display">HP: 1000</span>
+                <span id="player-def-display">DEF: 20</span>
+                <span id="player-pi-display">⭐ PI: 5</span>
+                <span id="turn-info" style="font-size: var(--font-xs); color:#aaa;">Turno: 0</span>
+                <button id="sfx-toggle" class="sfx-toggle off">SOM: OFF</button>
+            </div>
+
+            <!-- Turn Controls (Temporizador Circular) -->
+            <div id="turn-controls">
+                <div id="turn-indicator" style="color:#fff; font-family: var(--font-title); font-size: var(--font-sm);">AGUARDANDO...</div>
+                <div class="timer-container">
+                    <svg id="timer-svg" viewBox="0 0 100 100"></svg>
+                    <button id="btn-pass" onclick="game.passTurn()" disabled>PASSAR</button>
+                </div>
+                <!-- Elemento legado (escondido) para manter compatibilidade lógica -->
+                <div id="timer">60</div>
+            </div>
+
+            <!-- Player Hand -->
+            <div class="hand-area player-hand" id="player-hand"></div>
+        </div>
+    </div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="shared_constants.js"></script>
+    <script src="shared_cards.js"></script>
+    <script src="client.js"></script>
+</body>
+</html>
