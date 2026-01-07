@@ -3322,7 +3322,7 @@ const CARD_DATABASE = [];
         }
 
         const game = new Game();
-        const { INTENTS, SERVER_EVENTS } = window.SHARED_CONSTANTS || {};
+        const { INTENTS: INTENTS_CONST, SERVER_EVENTS: SERVER_EVENTS_CONST } = window.SHARED_CONSTANTS || {};
         let currentMatchId = null;
         let intentSeq = 0;
 
@@ -3335,16 +3335,19 @@ const CARD_DATABASE = [];
         const applyMatchState = (state) => {
             if (!state) return;
             currentMatchId = state.id;
-            const playerIds = Object.keys(state.players);
-            const myId = localPlayerId || playerIds[0];
+            const playersObj = state.players || {};
+            const playerIds = Object.keys(playersObj);
+            if (playerIds.length < 2) return;
+            const myId = playerIds.includes(localPlayerId) ? localPlayerId : playerIds[0];
             const oppId = playerIds.find(id => id !== myId) || playerIds[1];
-            const me = state.players[myId];
-            const opp = state.players[oppId];
+            const me = playersObj[myId];
+            const opp = playersObj[oppId];
+            if (!me || !opp) return;
 
             game.player = {
                 ...game.player,
                 ...me,
-                hand: me.hand,
+                hand: Array.isArray(me.hand) ? me.hand : [],
                 deck: new Array(me.deckCount || 0).fill({}),
                 gy: me.gy || [],
                 field: me.field || {}
@@ -3352,7 +3355,7 @@ const CARD_DATABASE = [];
             game.opp = {
                 ...game.opp,
                 ...opp,
-                hand: opp.hand || [],
+                hand: Array.isArray(opp.hand) ? opp.hand : [],
                 deck: new Array(opp.deckCount || 0).fill({}),
                 gy: opp.gy || [],
                 field: opp.field || {}
@@ -3388,31 +3391,31 @@ const CARD_DATABASE = [];
 
         const patchGameActions = () => {
             game.commitSummon = (card, r, c) => {
-                sendIntent(INTENTS.PLAY_CARD, { cardInstanceId: card.uid, position: { r, c } });
+                sendIntent(INTENTS_CONST.PLAY_CARD, { cardInstanceId: card.uid, position: { r, c } });
             };
             game.executeAction = (type, source, target) => {
                 const targetId = typeof target === 'string' ? target : target?.uid;
                 if (!targetId) return;
-                const intentType = type === 'attack' ? INTENTS.ATTACK : type === 'skill' ? INTENTS.USE_SKILL : INTENTS.USE_ULT;
+                const intentType = type === 'attack' ? INTENTS_CONST.ATTACK : type === 'skill' ? INTENTS_CONST.USE_SKILL : INTENTS_CONST.USE_ULT;
                 sendIntent(intentType, { attackerId: source.uid, targetId });
             };
             game.applyUtility = (utilCard, targetCard) => {
-                sendIntent(INTENTS.USE_UTILITY, { cardInstanceId: utilCard.uid, targetId: targetCard.uid });
+                sendIntent(INTENTS_CONST.USE_UTILITY, { cardInstanceId: utilCard.uid, targetId: targetCard.uid });
             };
             game.executeMove = (r, c) => {
                 const card = game.activeCard;
                 if (!card) return;
-                sendIntent(INTENTS.MOVE_CARD, { sourceId: card.uid, position: { r, c } });
+                sendIntent(INTENTS_CONST.MOVE_CARD, { sourceId: card.uid, position: { r, c } });
                 game.resetInteraction();
             };
             game.executeControlledMove = (r, c) => {
                 const card = game.activeCard;
                 if (!card) return;
-                sendIntent(INTENTS.CONTROL_MOVE, { sourceId: card.uid, position: { r, c } });
+                sendIntent(INTENTS_CONST.CONTROL_MOVE, { sourceId: card.uid, position: { r, c } });
                 game.resetInteraction();
             };
-            game.passTurn = () => sendIntent(INTENTS.END_TURN);
-            game.handleDeckDrawClick = () => sendIntent(INTENTS.DRAW_CARD);
+            game.passTurn = () => sendIntent(INTENTS_CONST.END_TURN);
+            game.handleDeckDrawClick = () => sendIntent(INTENTS_CONST.DRAW_CARD);
         };
 
         patchGameActions();
@@ -3438,11 +3441,11 @@ const CARD_DATABASE = [];
             }
         });
 
-        socket.on(SERVER_EVENTS?.STATE || 'match:state', (state) => {
+        socket.on(SERVER_EVENTS_CONST?.STATE || 'match:state', (state) => {
             applyMatchState(state);
         });
 
-        socket.on(SERVER_EVENTS?.ERROR || 'match:error', (message) => {
+        socket.on(SERVER_EVENTS_CONST?.ERROR || 'match:error', (message) => {
             if (message) alert(message);
         });
 
