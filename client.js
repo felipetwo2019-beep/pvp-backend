@@ -403,6 +403,11 @@ const CARD_DATABASE = [];
             const info = document.getElementById('room-info');
             const list = document.getElementById('room-players');
             if (info) info.textContent = `${room.name} • ${room.status === 'playing' ? 'Em jogo' : 'Aguardando'}`;
+            const seatIndex = room.players.findIndex(player => player.id === localPlayerId);
+            if (seatIndex !== -1) {
+                game.localSeatIndex = seatIndex;
+                game.viewFlipped = seatIndex === 1;
+            }
             if (list) {
                 list.innerHTML = '';
                 room.players.forEach(player => {
@@ -714,6 +719,8 @@ const CARD_DATABASE = [];
                 this.activeSide = null; this.roundNumber = 0; this.turnCounter = 0; this.phase = 'start'; this.timer = 60; this.timerInterval = null;
                 this.firstPlayerFirstTurnAttackLocked = true;
                 this.roundStarter = 'player';
+                this.viewFlipped = false;
+                this.localSeatIndex = null;
                 this.interactionMode = 'none'; this.activeCard = null; this.validSlots = []; 
                 this.deckDrawMode = null;
                 this.handStealMode = null;
@@ -732,6 +739,34 @@ const CARD_DATABASE = [];
                 if (card.isNecroSummon === undefined) card.isNecroSummon = false;
                 if (card.necromancerUid === undefined) card.necromancerUid = null;
                 if (card.necroOriginalOwner === undefined) card.necroOriginalOwner = null;
+            }
+            getLocalRows() {
+                return [this.getPlayerFrontRow(), this.getPlayerBackRow()];
+            }
+            getPlayerFrontRow() {
+                const frontRow = typeof PLAYER_FRONT_ROW === 'number' ? PLAYER_FRONT_ROW : 2;
+                const oppFrontRow = typeof OPP_FRONT_ROW === 'number' ? OPP_FRONT_ROW : 1;
+                return this.viewFlipped ? oppFrontRow : frontRow;
+            }
+            getPlayerBackRow() {
+                const backRow = typeof PLAYER_BACK_ROW === 'number' ? PLAYER_BACK_ROW : 3;
+                const oppBackRow = typeof OPP_BACK_ROW === 'number' ? OPP_BACK_ROW : 0;
+                return this.viewFlipped ? oppBackRow : backRow;
+            }
+            getOppFrontRow() {
+                const frontRow = typeof PLAYER_FRONT_ROW === 'number' ? PLAYER_FRONT_ROW : 2;
+                const oppFrontRow = typeof OPP_FRONT_ROW === 'number' ? OPP_FRONT_ROW : 1;
+                return this.viewFlipped ? frontRow : oppFrontRow;
+            }
+            getOppBackRow() {
+                const backRow = typeof PLAYER_BACK_ROW === 'number' ? PLAYER_BACK_ROW : 3;
+                const oppBackRow = typeof OPP_BACK_ROW === 'number' ? OPP_BACK_ROW : 0;
+                return this.viewFlipped ? backRow : oppBackRow;
+            }
+            getSideRows(side) {
+                return side === 'player'
+                    ? { front: this.getPlayerFrontRow(), back: this.getPlayerBackRow() }
+                    : { front: this.getOppFrontRow(), back: this.getOppBackRow() };
             }
             isL11Drunk(card) {
                 if (!card || card.dbId !== 'L-11') return false;
@@ -1149,7 +1184,8 @@ const CARD_DATABASE = [];
                     placed = tryPlaceInRow(originRow);
                 }
                 if (!placed) {
-                    const fallbackRow = originOwner === 'player' ? (originRow === 2 ? 3 : 2) : (originRow === 1 ? 0 : 1);
+                    const sideRows = this.getSideRows(originOwner);
+                    const fallbackRow = originRow === sideRows.front ? sideRows.back : sideRows.front;
                     placed = tryPlaceInRow(fallbackRow);
                 }
                 if (!placed) {
@@ -1177,8 +1213,9 @@ const CARD_DATABASE = [];
                 const vanguardAccess = this.getActiveEffects(source, 'l18_backrow_access').length > 0;
                 if (vanguardAccess) return false;
                 const defendingEntity = target.owner === 'player' ? this.player : this.opp;
-                const frontRow = target.owner === 'player' ? 2 : 1;
-                const backRow = target.owner === 'player' ? 3 : 0;
+                const sideRows = this.getSideRows(target.owner);
+                const frontRow = sideRows.front;
+                const backRow = sideRows.back;
                 const hasFrontRow = Object.values(defendingEntity.field).some(card => card.r === frontRow);
                 return hasFrontRow && target.r === backRow;
             }
@@ -1306,7 +1343,7 @@ const CARD_DATABASE = [];
                     const chance = Math.max(...diceEffects.map(e => e.meta?.healChance ?? 0));
                     if (chance > 0 && Math.random() < chance) {
                         card.currentHp = Math.min(card.maxHp, card.currentHp + safeDamage);
-                        const cardEl = document.querySelector(`[data-r="${card.r}"][data-c="${card.c}"]`);
+                        const cardEl = ui.getSlotEl(card.r, card.c);
                         ui.showDamage(cardEl, `+${Math.floor(safeDamage)}`, "#39ff14");
                         if (cardEl) {
                             fx.healHearts(cardEl.getBoundingClientRect(), 1);
@@ -1358,7 +1395,7 @@ const CARD_DATABASE = [];
                     if (effect.turnsLeft > 0 && effect.type === 'pa_bonus_start') {
                         Object.values(entity.field).forEach(card => {
                             card.pa = Math.min(10, card.pa + effect.value);
-                            ui.showDamage(document.querySelector(`[data-r="${card.r}"][data-c="${card.c}"]`), `+${effect.value} PA`, "#ff00ff");
+                            ui.showDamage(ui.getSlotEl(card.r, card.c), `+${effect.value} PA`, "#ff00ff");
                         });
                         this.logAction(`PA +${effect.value} para aliados.`, entity === this.player ? 'player' : 'opp');
                     }
@@ -1374,14 +1411,14 @@ const CARD_DATABASE = [];
                         if (isSuppressed && !effect.meta?.permanent && !effect.meta?.ignoreSuppression) return;
                         if (effect.turnsLeft > 0 && effect.type === 'pa_bonus_start_card') {
                             card.pa = Math.min(10, card.pa + effect.value);
-                            ui.showDamage(document.querySelector(`[data-r="${card.r}"][data-c="${card.c}"]`), `+${effect.value} PA`, "#ff00ff");
+                            ui.showDamage(ui.getSlotEl(card.r, card.c), `+${effect.value} PA`, "#ff00ff");
                         }
                         if (effect.turnsLeft > 0 && effect.type === 'hp_drain_pct') {
                             // Efeitos de drenagem ocorrem no início do turno do dono.
                             const drain = Math.floor(card.currentHp * effect.value);
                             if (drain > 0) {
                                 this.applyDamageToCard(card, drain);
-                                ui.showDamage(document.querySelector(`[data-r="${card.r}"][data-c="${card.c}"]`), drain, "#ff4444");
+                                ui.showDamage(ui.getSlotEl(card.r, card.c), drain, "#ff4444");
                                 const sourceName = getEffectSourceCardName(effect) || 'Efeito';
                                 this.logAction(`${sourceName} causou ${Math.floor(drain)} de dano em ${card.name}.`, effect.meta?.sourceSide || card.owner);
                                 if (card.currentHp <= 0) this.killCard(card);
@@ -1391,7 +1428,7 @@ const CARD_DATABASE = [];
                             const poison = Math.floor(effect.value || 0);
                             if (poison > 0) {
                                 this.applyDamageToCard(card, poison);
-                                ui.showDamage(document.querySelector(`[data-r="${card.r}"][data-c="${card.c}"]`), poison, "#b300ff");
+                                ui.showDamage(ui.getSlotEl(card.r, card.c), poison, "#b300ff");
                                 const sourceName = getEffectSourceCardName(effect) || 'Efeito';
                                 this.logAction(`${sourceName} causou ${Math.floor(poison)} de dano em ${card.name}.`, effect.meta?.sourceSide || card.owner);
                                 if (card.currentHp <= 0) this.killCard(card);
@@ -1428,7 +1465,7 @@ const CARD_DATABASE = [];
                         const slot = document.createElement('div');
                         slot.className = 'slot';
                         slot.dataset.r = r; slot.dataset.c = c;
-                        slot.onclick = () => game.handleGridClick(r, c);
+                        slot.onclick = () => game.handleGridClick(ui.mapRowToState(r), c);
                         rowDiv.appendChild(slot);
                     }
                     grid.appendChild(rowDiv);
@@ -1557,7 +1594,7 @@ const CARD_DATABASE = [];
                 const key = `${r}-${c}`;
                 if (this.interactionMode === 'summon') {
                     if (this.validSlots.includes(key)) {
-                        const slotEl = document.querySelector(`.slot[data-r="${r}"][data-c="${c}"]`);
+                        const slotEl = ui.getSlotEl(r, c);
                         ui.runSummonAnimation(this.activeCard, slotEl, r, c);
                         this.resetInteraction();
                     }
@@ -1616,7 +1653,7 @@ const CARD_DATABASE = [];
                 ui.renderHand(sideKey);
                 ui.renderField();
                 ui.updateHUD();
-                const slotEl = document.querySelector(`.slot[data-r="${r}"][data-c="${c}"]`);
+                const slotEl = ui.getSlotEl(r, c);
                 if (slotEl) {
                     fx.spawnParticles('summon', slotEl.getBoundingClientRect());
                 }
@@ -1629,8 +1666,8 @@ const CARD_DATABASE = [];
                     const multiplier = this.getUtilityMultiplierForSide(utilCard.owner);
                     const paGain = 3 * multiplier;
                     targetCard.pa = Math.min(10, targetCard.pa + paGain);
-                    ui.showDamage(document.querySelector(`[data-r="${targetCard.r}"][data-c="${targetCard.c}"]`), `+${paGain} PA`, "#ff00ff");
-                    const tEl = document.querySelector(`[data-r="${targetCard.r}"][data-c="${targetCard.c}"]`);
+                    ui.showDamage(ui.getSlotEl(targetCard.r, targetCard.c), `+${paGain} PA`, "#ff00ff");
+                    const tEl = ui.getSlotEl(targetCard.r, targetCard.c);
                     if (tEl) {
                         fx.spawnParticles('buff', tEl.getBoundingClientRect());
                         fx.spawnRunes(tEl.getBoundingClientRect(), 2);
@@ -1752,7 +1789,7 @@ const CARD_DATABASE = [];
                         filters: {},
                         meta: {}
                     });
-                    const targetEl = document.querySelector(`[data-r="${target.r}"][data-c="${target.c}"]`);
+                    const targetEl = ui.getSlotEl(target.r, target.c);
                     if (targetEl) {
                         fx.spawnParticles('debuff', targetEl.getBoundingClientRect());
                     }
@@ -1776,13 +1813,13 @@ const CARD_DATABASE = [];
                 if (l15SkillBonus !== 1) {
                     finalDmg *= l15SkillBonus;
                 }
-                const sourceSlot = document.querySelector(`.slot[data-r="${source.r}"][data-c="${source.c}"]`);
+                const sourceSlot = ui.getSlotEl(source.r, source.c);
                 const targetSlot = (target === 'player_avatar')
                     ? document.getElementById('hud-player')
                     : (target === 'opp_avatar')
                         ? document.getElementById('hud-opponent')
                         : (target && typeof target !== 'string')
-                            ? document.querySelector(`.slot[data-r="${target.r}"][data-c="${target.c}"]`)
+                            ? ui.getSlotEl(target.r, target.c)
                             : null;
                 const sourceRect = sourceSlot ? sourceSlot.getBoundingClientRect() : null;
                 const targetRect = targetSlot ? targetSlot.getBoundingClientRect() : null;
@@ -1834,13 +1871,13 @@ const CARD_DATABASE = [];
                             const redirectTotal = finalDmg * 0.2;
                             const perAlly = redirectTotal / skeletonAllies.length;
                             this.applyDamageToCard(resolvedTarget, finalDmg - redirectTotal);
-                            const resolvedEl = document.querySelector(`[data-r="${resolvedTarget.r}"][data-c="${resolvedTarget.c}"]`);
+                            const resolvedEl = ui.getSlotEl(resolvedTarget.r, resolvedTarget.c);
                             ui.showDamage(resolvedEl, finalDmg - redirectTotal);
                             fx.hitFlash(resolvedEl);
                             this.logDamageEvent(source, finalDmg - redirectTotal, resolvedTarget.name);
                             for (const ally of skeletonAllies) {
                                 this.applyDamageToCard(ally, perAlly);
-                                const allyEl = document.querySelector(`[data-r="${ally.r}"][data-c="${ally.c}"]`);
+                                const allyEl = ui.getSlotEl(ally.r, ally.c);
                                 ui.showDamage(allyEl, perAlly, "#b300ff");
                                 fx.hitFlash(allyEl);
                                 this.logDamageEvent(source, perAlly, ally.name);
@@ -1848,14 +1885,14 @@ const CARD_DATABASE = [];
                             }
                         } else {
                             this.applyDamageToCard(resolvedTarget, finalDmg);
-                            const resolvedEl = document.querySelector(`[data-r="${resolvedTarget.r}"][data-c="${resolvedTarget.c}"]`);
+                            const resolvedEl = ui.getSlotEl(resolvedTarget.r, resolvedTarget.c);
                             ui.showDamage(resolvedEl, finalDmg);
                             fx.hitFlash(resolvedEl);
                             this.logDamageEvent(source, finalDmg, resolvedTarget.name);
                         }
                     } else {
                         this.applyDamageToCard(resolvedTarget, finalDmg);
-                        const resolvedEl = document.querySelector(`[data-r="${resolvedTarget.r}"][data-c="${resolvedTarget.c}"]`);
+                        const resolvedEl = ui.getSlotEl(resolvedTarget.r, resolvedTarget.c);
                         ui.showDamage(resolvedEl, finalDmg);
                         fx.hitFlash(resolvedEl);
                         this.logDamageEvent(source, finalDmg, resolvedTarget.name);
@@ -1864,7 +1901,7 @@ const CARD_DATABASE = [];
                     if (actionType === 'attack' && effectiveDef > source.currentAtk && !ignoreDef) {
                         const reflect = effectiveDef - source.currentAtk;
                         this.applyDamageToCard(source, reflect);
-                        const sourceEl = document.querySelector(`[data-r="${source.r}"][data-c="${source.c}"]`);
+                        const sourceEl = ui.getSlotEl(source.r, source.c);
                         ui.showDamage(sourceEl, reflect, '#fff');
                         fx.hitFlash(sourceEl);
                         this.logDamageEvent(resolvedTarget, reflect, source.name);
@@ -1875,7 +1912,7 @@ const CARD_DATABASE = [];
                         if (!card || typeof card === 'string') return false;
                         if (card.pa <= 0) return false;
                         card.pa = Math.max(0, card.pa - 1);
-                        const targetEl = document.querySelector(`[data-r="${card.r}"][data-c="${card.c}"]`);
+                        const targetEl = ui.getSlotEl(card.r, card.c);
                         ui.showDamage(targetEl, "-1 PA", "#ff4444");
                         if (targetEl) {
                             fx.spawnParticles('debuff', targetEl.getBoundingClientRect());
@@ -1911,7 +1948,7 @@ const CARD_DATABASE = [];
                             filters: {},
                             meta: { sourceUid: source.uid }
                         });
-                        const targetEl = document.querySelector(`[data-r="${resolvedTarget.r}"][data-c="${resolvedTarget.c}"]`);
+                        const targetEl = ui.getSlotEl(resolvedTarget.r, resolvedTarget.c);
                         ui.showDamage(targetEl, "INFECTADO", "#b300ff");
                         if (targetEl) {
                             fx.spawnParticles('debuff', targetEl.getBoundingClientRect());
@@ -1927,7 +1964,7 @@ const CARD_DATABASE = [];
                             filters: {},
                             meta: { silentLog: true }
                         });
-                        const targetEl = document.querySelector(`[data-r="${resolvedTarget.r}"][data-c="${resolvedTarget.c}"]`);
+                        const targetEl = ui.getSlotEl(resolvedTarget.r, resolvedTarget.c);
                         if (targetEl) {
                             fx.spawnParticles('debuff', targetEl.getBoundingClientRect());
                             fx.spawnRunes(targetEl.getBoundingClientRect(), 3);
@@ -1940,7 +1977,7 @@ const CARD_DATABASE = [];
                         const spreadDamage = finalDmg * 0.5;
                         infected.forEach(card => {
                             this.applyDamageToCard(card, spreadDamage, { isSplash: true });
-                            const cardEl = document.querySelector(`[data-r="${card.r}"][data-c="${card.c}"]`);
+                            const cardEl = ui.getSlotEl(card.r, card.c);
                             ui.showDamage(cardEl, spreadDamage, "#b300ff");
                             fx.hitFlash(cardEl);
                             this.logDamageEvent(source, spreadDamage, card.name);
@@ -1948,15 +1985,17 @@ const CARD_DATABASE = [];
                         });
                     }
                     if (source.dbId === 'L-9' && finalDmg > 0 && this.getActiveEffects(source, 'l9_spill').length > 0) {
-                        const enemyFrontRow = source.owner === 'player' ? 1 : 2;
-                        const enemyBackRow = source.owner === 'player' ? 0 : 3;
+                        const enemySide = source.owner === 'player' ? 'opp' : 'player';
+                        const enemyRows = this.getSideRows(enemySide);
+                        const enemyFrontRow = enemyRows.front;
+                        const enemyBackRow = enemyRows.back;
                         if (resolvedTarget.owner !== source.owner && resolvedTarget.r === enemyFrontRow) {
                             const enemyEntity = resolvedTarget.owner === 'player' ? this.player : this.opp;
                             const spillDamage = finalDmg * 0.3;
                             Object.values(enemyEntity.field).forEach(enemy => {
                                 if (enemy.r === enemyBackRow) {
                                     this.applyDamageToCard(enemy, spillDamage, { skipReflect: true, isSplash: true });
-                                    const enemyEl = document.querySelector(`[data-r="${enemy.r}"][data-c="${enemy.c}"]`);
+                                    const enemyEl = ui.getSlotEl(enemy.r, enemy.c);
                                     ui.showDamage(enemyEl, spillDamage, "#8ff7ff");
                                     fx.hitFlash(enemyEl);
                                     this.logDamageEvent(source, spillDamage, enemy.name);
@@ -1970,7 +2009,7 @@ const CARD_DATABASE = [];
                         const splashDmg = finalDmg * 0.75;
                         Object.values(enemyEntity.field).forEach(enemy => {
                             this.applyDamageToCard(enemy, splashDmg, { skipReflect: true, isSplash: true });
-                            const enemyEl = document.querySelector(`[data-r="${enemy.r}"][data-c="${enemy.c}"]`);
+                            const enemyEl = ui.getSlotEl(enemy.r, enemy.c);
                             ui.showDamage(enemyEl, splashDmg, "#33e6ff");
                             fx.hitFlash(enemyEl);
                             this.logDamageEvent(source, splashDmg, enemy.name);
@@ -2004,7 +2043,7 @@ const CARD_DATABASE = [];
                 if (isUlt && source.effectType === 'lifesteal' && !this.isLegendaryOverride(source)) {
                     const heal = finalDmg * 0.5 * healCritInfo.mult;
                     source.currentHp = Math.min(source.maxHp, source.currentHp + heal);
-                    const srcEl = document.querySelector(`[data-r="${source.r}"][data-c="${source.c}"]`);
+                    const srcEl = ui.getSlotEl(source.r, source.c);
                     if (srcEl) {
                         fx.healHearts(srcEl.getBoundingClientRect(), 3);
                         fx.spawnParticles('heal', srcEl.getBoundingClientRect());
@@ -2029,7 +2068,7 @@ const CARD_DATABASE = [];
                          if(ally.currentHp > 0) ally.currentHp = Math.min(ally.maxHp, ally.currentHp + healAmount);
                      });
                      Object.values(allies).forEach(ally => {
-                         const allyEl = document.querySelector(`[data-r="${ally.r}"][data-c="${ally.c}"]`);
+                         const allyEl = ui.getSlotEl(ally.r, ally.c);
                          if (allyEl) {
                              fx.healHearts(allyEl.getBoundingClientRect(), 2);
                              fx.spawnParticles('heal', allyEl.getBoundingClientRect());
@@ -2043,8 +2082,8 @@ const CARD_DATABASE = [];
                     if (hasL5Mark && finalDmg > 0) {
                         const heal = finalDmg * 0.2;
                         source.currentHp = Math.min(source.maxHp, source.currentHp + heal);
-                        ui.showDamage(document.querySelector(`[data-r="${source.r}"][data-c="${source.c}"]`), `+${Math.floor(heal)}`, "#39ff14");
-                        const srcEl = document.querySelector(`[data-r="${source.r}"][data-c="${source.c}"]`);
+                        ui.showDamage(ui.getSlotEl(source.r, source.c), `+${Math.floor(heal)}`, "#39ff14");
+                        const srcEl = ui.getSlotEl(source.r, source.c);
                         if (srcEl) {
                             fx.healHearts(srcEl.getBoundingClientRect(), 2);
                             fx.spawnParticles('heal', srcEl.getBoundingClientRect());
@@ -2063,7 +2102,7 @@ const CARD_DATABASE = [];
             }
             async executeSupportAction(actionType, source, target) {
                 const owner = this.getControllerEntity(source);
-                const getCardEl = (card) => document.querySelector(`[data-r="${card.r}"][data-c="${card.c}"]`);
+                const getCardEl = (card) => ui.getSlotEl(card.r, card.c);
                 if (source.dbId === 'L-1' && actionType === 'skill') {
                     const allies = Object.values(owner.field);
                     allies.forEach(ally => {
@@ -2504,8 +2543,9 @@ const CARD_DATABASE = [];
                 if (source.dbId === 'L-11' && actionType === 'skill') {
                     if (!target || typeof target === 'string') return;
                     const targetEntity = target.owner === 'player' ? this.player : this.opp;
-                    const frontRow = target.owner === 'player' ? 2 : 1;
-                    const backRow = target.owner === 'player' ? 3 : 0;
+                    const sideRows = this.getSideRows(target.owner);
+                    const frontRow = sideRows.front;
+                    const backRow = sideRows.back;
                     if (![frontRow, backRow].includes(target.r)) return;
                     const fromKey = `${target.r}-${target.c}`;
                     const toRow = target.r === frontRow ? backRow : frontRow;
@@ -2644,8 +2684,9 @@ const CARD_DATABASE = [];
                     const originIndex = originEntity.gy.findIndex(card => card.uid === target.uid);
                     if (originIndex === -1) return;
 
-                    const frontRow = controllerSide === 'player' ? 2 : 1;
-                    const backRow = controllerSide === 'player' ? 3 : 0;
+                    const controllerRows = this.getSideRows(controllerSide);
+                    const frontRow = controllerRows.front;
+                    const backRow = controllerRows.back;
                     const preferredRow = (target.archetype === 'Melee' || target.archetype === 'Tank') ? frontRow : backRow;
                     const fallbackRow = preferredRow === frontRow ? backRow : frontRow;
                     let placeKey = null;
@@ -3322,7 +3363,15 @@ const CARD_DATABASE = [];
         }
 
         const game = new Game();
-        const { INTENTS: INTENTS_CONST, SERVER_EVENTS: SERVER_EVENTS_CONST } = window.SHARED_CONSTANTS || {};
+        const {
+            INTENTS: INTENTS_CONST,
+            SERVER_EVENTS: SERVER_EVENTS_CONST,
+            BOARD_ROWS,
+            PLAYER_FRONT_ROW,
+            PLAYER_BACK_ROW,
+            OPP_FRONT_ROW,
+            OPP_BACK_ROW
+        } = window.SHARED_CONSTANTS || {};
         let currentMatchId = null;
         let intentSeq = 0;
 
@@ -3362,12 +3411,24 @@ const CARD_DATABASE = [];
             };
             game.roundNumber = state.turn;
             game.activeSide = state.activePlayerId === myId ? 'player' : 'enemy';
+            if (game.localSeatIndex === null) {
+                const playerRows = Object.values(game.player.field || {}).map(card => card.r);
+                if (playerRows.length) {
+                    game.viewFlipped = playerRows.some(row => row <= 1);
+                }
+            }
 
             ui.renderHand('player');
             ui.renderHand('opp');
             ui.renderField();
             ui.updateHUD();
             ui.updateGraveyardVisuals();
+            const passBtn = document.getElementById('btn-pass');
+            if (passBtn) passBtn.disabled = game.activeSide !== 'player';
+            const turnIndicator = document.getElementById('turn-indicator');
+            if (turnIndicator) {
+                turnIndicator.innerText = game.activeSide === 'player' ? 'SEU TURNO' : 'TURNO DO OPONENTE';
+            }
 
             const logPanel = document.getElementById('log-player');
             if (logPanel && Array.isArray(state.logs)) {
@@ -3651,6 +3712,23 @@ const CARD_DATABASE = [];
 
         const ui = {
             hudState: {},
+            getBoardRows: () => (typeof BOARD_ROWS === 'number' ? BOARD_ROWS : 4),
+            mapRowToView: (row) => {
+                const total = ui.getBoardRows();
+                return game.viewFlipped ? (total - 1 - row) : row;
+            },
+            mapRowToState: (row) => {
+                const total = ui.getBoardRows();
+                return game.viewFlipped ? (total - 1 - row) : row;
+            },
+            getSlotEl: (row, col) => {
+                const viewRow = ui.mapRowToView(row);
+                return document.querySelector(`.slot[data-r="${viewRow}"][data-c="${col}"]`);
+            },
+            getSlotCardEl: (row, col) => {
+                const viewRow = ui.mapRowToView(row);
+                return document.querySelector(`.slot[data-r="${viewRow}"][data-c="${col}"] .card`);
+            },
             selectedInfoCardUid: null,
             getInfoPanelCard: () => {
                 if (!ui.selectedInfoCardUid) return null;
@@ -3844,11 +3922,12 @@ const CARD_DATABASE = [];
                     s.className = 'slot'; 
                     const r = parseInt(s.dataset.r);
                     const c = parseInt(s.dataset.c);
-                    s.onclick = () => game.handleGridClick(r, c);
+                    const serverRow = ui.mapRowToState(r);
+                    s.onclick = () => game.handleGridClick(serverRow, c);
                 });
                 [game.player, game.opp].forEach(ent => {
                     Object.values(ent.field).forEach(c => {
-                        const slot = document.querySelector(`.slot[data-r="${c.r}"][data-c="${c.c}"]`);
+                        const slot = ui.getSlotEl(c.r, c.c);
                         if(slot) {
                             const el = document.createElement('div');
                             el.className = `card ${c.rarity}`;
@@ -3871,17 +3950,18 @@ const CARD_DATABASE = [];
                 slots.forEach(s => {
                     const r = parseInt(s.dataset.r);
                     const c = parseInt(s.dataset.c);
-                    const key = `${r}-${c}`;
+                    const serverRow = ui.mapRowToState(r);
+                    const key = `${serverRow}-${c}`;
                     let isSummon = (game.interactionMode === 'summon' && game.validSlots.includes(key));
                     let isTarget = ((game.interactionMode === 'target' || game.interactionMode === 'utility') && game.validSlots.includes(key));
                     let isMove = ((game.interactionMode === 'move' || game.interactionMode === 'control_move') && game.validSlots.includes(key));
 
                     if (isSummon || isMove) {
                         s.classList.add('valid-summon-zone');
-                        s.onclick = (e) => { e.stopPropagation(); game.handleGridClick(r, c); };
+                        s.onclick = (e) => { e.stopPropagation(); game.handleGridClick(serverRow, c); };
                     } else if (isTarget) {
                         s.classList.add('valid-target-zone');
-                        s.onclick = (e) => { e.stopPropagation(); game.handleGridClick(r, c); };
+                        s.onclick = (e) => { e.stopPropagation(); game.handleGridClick(serverRow, c); };
                     }
                 });
             },
@@ -4075,7 +4155,7 @@ const CARD_DATABASE = [];
             },
             animateDeath: (card) => {
                 return new Promise(resolve => {
-                    const slot = document.querySelector(`.slot[data-r="${card.r}"][data-c="${card.c}"] .card`);
+                    const slot = ui.getSlotCardEl(card.r, card.c);
                     const gyId = card.owner === 'player' ? 'player-gy' : 'opp-gy';
                     const gyEl = document.getElementById(gyId);
                     if (!slot || !gyEl) { resolve(); return; }
@@ -4350,7 +4430,7 @@ const CARD_DATABASE = [];
                 game.validSlots = [];
 
                 // Add all valid player slots (rows 2 and 3) except current one
-                const rows = [2, 3];
+                const rows = this.getLocalRows();
                 rows.forEach(r => {
                     for(let c=0; c<5; c++) {
                         if (r !== card.r || c !== card.c) {
@@ -4369,7 +4449,7 @@ const CARD_DATABASE = [];
                 game.interactionMode = 'control_move';
                 game.activeCard = card;
                 game.validSlots = [];
-                const rows = [2, 3];
+                const rows = this.getLocalRows();
                 rows.forEach(r => {
                     for (let c = 0; c < 5; c++) {
                         if (!game.player.field[`${r}-${c}`]) {
@@ -4393,7 +4473,7 @@ const CARD_DATABASE = [];
                 game.interactionMode = 'summon';
                 game.activeCard = card;
                 game.validSlots = [];
-                const rows = [2, 3]; 
+                const rows = this.getLocalRows(); 
                 let hasSpace = false;
                 rows.forEach(r => { for(let c=0; c<5; c++) { if(!game.player.field[`${r}-${c}`]) { game.validSlots.push(`${r}-${c}`); hasSpace = true; } } });
                 if(!hasSpace) { alert("Sem espaço no campo!"); game.resetInteraction(); return; }
@@ -4471,11 +4551,12 @@ const CARD_DATABASE = [];
                         game.validSlots.push(`${ally.r}-${ally.c}`);
                     });
                     const enemies = Object.values(game.opp.field).filter(e => e.uid !== card.uid);
-                    const hasFrontRow = enemies.some(e => e.r === 1);
+                    const oppFrontRow = game.getOppFrontRow();
+                    const hasFrontRow = enemies.some(e => e.r === oppFrontRow);
                     const hasVanguardAccess = game.getActiveEffects(card, 'l18_backrow_access').length > 0;
                     const isMeleeLocked = !(card.dbId === 'L-11' && type === 'skill') && (card.archetype === 'Melee' || card.archetype === 'Tank') && hasFrontRow && !hasVanguardAccess;
                     enemies.forEach(e => {
-                        if (isMeleeLocked) { if (e.r === 1) game.validSlots.push(`${e.r}-${e.c}`); } 
+                        if (isMeleeLocked) { if (e.r === oppFrontRow) game.validSlots.push(`${e.r}-${e.c}`); } 
                         else { game.validSlots.push(`${e.r}-${e.c}`); }
                     });
                     if (game.validSlots.length === 0) {
@@ -4492,11 +4573,12 @@ const CARD_DATABASE = [];
                 game.validSlots = [];
                 document.body.classList.add('cursor-sword');
                 const enemies = Object.values(game.opp.field).filter(e => e.uid !== card.uid);
-                const hasFrontRow = enemies.some(e => e.r === 1);
+                const oppFrontRow = game.getOppFrontRow();
+                const hasFrontRow = enemies.some(e => e.r === oppFrontRow);
                 const hasVanguardAccess = game.getActiveEffects(card, 'l18_backrow_access').length > 0;
                 const isMeleeLocked = (card.archetype === 'Melee' || card.archetype === 'Tank') && hasFrontRow && !hasVanguardAccess;
                 enemies.forEach(e => {
-                    if (isMeleeLocked) { if (e.r === 1) game.validSlots.push(`${e.r}-${e.c}`); } 
+                    if (isMeleeLocked) { if (e.r === oppFrontRow) game.validSlots.push(`${e.r}-${e.c}`); } 
                     else { game.validSlots.push(`${e.r}-${e.c}`); }
                 });
                 let canAttackAvatar = false;
@@ -4831,11 +4913,11 @@ const CARD_DATABASE = [];
                 // board: use slot center (or HUD center for avatar), with small upward offset
                 let sEl, tEl;
                 if (source && source.r !== undefined) {
-                    sEl = document.querySelector(`.slot[data-r="${source.r}"][data-c="${source.c}"]`);
+                    sEl = ui.getSlotEl(source.r, source.c);
                 }
                 if (target === 'player_avatar') tEl = document.getElementById('hud-player');
                 else if (target === 'opp_avatar') tEl = document.getElementById('hud-opponent');
-                else if (target && target.r !== undefined) tEl = document.querySelector(`.slot[data-r="${target.r}"][data-c="${target.c}"]`);
+                else if (target && target.r !== undefined) tEl = ui.getSlotEl(target.r, target.c);
 
                 const start = ui._getElCenter(sEl, -22);
                 const end   = ui._getElCenter(tEl, -22);
@@ -5048,14 +5130,14 @@ const arena = document.getElementById('arena-overlay');
             animateBoardProjectile: (source, target) => {
                 return new Promise((resolve) => {
                     let sEl, tEl;
-                    if (source.r !== undefined) {
-                        sEl = document.querySelector(`.slot[data-r="${source.r}"][data-c="${source.c}"]`);
-                    } else {
-                        resolve(); return;
-                    }
-                    if (target === 'player_avatar') tEl = document.getElementById('hud-player');
-                    else if (target === 'opp_avatar') tEl = document.getElementById('hud-opponent');
-                    else tEl = document.querySelector(`.slot[data-r="${target.r}"][data-c="${target.c}"]`);
+                if (source.r !== undefined) {
+                    sEl = ui.getSlotEl(source.r, source.c);
+                } else {
+                    resolve(); return;
+                }
+                if (target === 'player_avatar') tEl = document.getElementById('hud-player');
+                else if (target === 'opp_avatar') tEl = document.getElementById('hud-opponent');
+                else tEl = ui.getSlotEl(target.r, target.c);
                     if(!sEl || !tEl) { resolve(); return; }
 
                     const sRect = sEl.getBoundingClientRect();
