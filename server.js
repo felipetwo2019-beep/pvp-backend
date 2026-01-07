@@ -42,7 +42,11 @@ const tryStartMatch = (room) => {
 };
 
 io.on('connection', (socket) => {
-  const player = { id: socket.id, name: `Jogador ${socket.id.slice(0, 4)}` };
+  const persistedId = socket.handshake.auth?.playerId;
+  const playerId = persistedId || socket.id;
+  const player = { id: playerId, name: `Jogador ${playerId.slice(0, 4)}` };
+  socket.data.playerId = playerId;
+  socket.join(playerId);
 
   socket.emit('lobby:list', listRooms());
 
@@ -60,19 +64,25 @@ io.on('connection', (socket) => {
     socket.emit('lobby:list', listRooms());
   });
 
-  socket.on('lobby:join', ({ roomId, deck, playerName }) => {
+  socket.on('lobby:join', ({ roomId, deck, playerName }, ack) => {
     if (playerName) player.name = playerName;
     const { room, error } = joinRoom(roomId, player);
     if (error) {
       socket.emit('lobby:error', error);
+      if (ack) ack({ ok: false, error });
       return;
     }
     const joinedPlayer = room.players.find(p => p.id === player.id);
-    if (joinedPlayer) joinedPlayer.deck = deck || [];
+    if (joinedPlayer && Array.isArray(deck) && deck.length) joinedPlayer.deck = deck;
     socketToRoom.set(socket.id, room.id);
     socket.join(room.id);
     broadcastLobby();
     broadcastRoom(room.id);
+    const match = getMatchByRoom(room.id);
+    if (match) {
+      io.to(player.id).emit(SERVER_EVENTS.STATE, getStateForPlayer(match, player.id));
+    }
+    if (ack) ack({ ok: true, roomId: room.id });
   });
 
   socket.on('room:ready', ({ ready, deck }) => {
@@ -80,9 +90,9 @@ io.on('connection', (socket) => {
     if (!roomId) return;
     const room = getRoom(roomId);
     if (!room) return;
-    const playerEntry = room.players.find(p => p.id === socket.id);
+    const playerEntry = room.players.find(p => p.id === socket.data.playerId);
     if (playerEntry && deck) playerEntry.deck = deck;
-    const result = setReady(roomId, socket.id, !!ready);
+    const result = setReady(roomId, socket.data.playerId, !!ready);
     if (result.error) {
       socket.emit('room:error', result.error);
       return;
@@ -96,7 +106,7 @@ io.on('connection', (socket) => {
     if (!roomId) return;
     const match = getMatchByRoom(roomId);
     if (!match) return;
-    const result = handleIntent(match, socket.id, intent);
+    const result = handleIntent(match, socket.data.playerId, intent);
     if (result.error) {
       socket.emit(SERVER_EVENTS.ERROR, result.error);
       return;
@@ -113,7 +123,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const roomId = socketToRoom.get(socket.id);
     if (roomId) {
-      const room = leaveRoom(roomId, socket.id);
+      const room = leaveRoom(roomId, socket.data.playerId);
       socketToRoom.delete(socket.id);
       if (room) {
         broadcastLobby();

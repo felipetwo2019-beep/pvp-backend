@@ -53,8 +53,41 @@ const CARD_DATABASE = [];
         let currentRoomId = null;
         let isReady = false;
 
-        const socket = io();
-        let localPlayerId = null;
+        const RESTORE_STORAGE_KEY = 'pvp:last-session';
+        const PLAYER_ID_STORAGE_KEY = 'pvp:player-id';
+
+        function getOrCreatePlayerId() {
+            let playerId = localStorage.getItem(PLAYER_ID_STORAGE_KEY);
+            if (!playerId) {
+                playerId = (window.crypto?.randomUUID?.() || `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+                localStorage.setItem(PLAYER_ID_STORAGE_KEY, playerId);
+            }
+            return playerId;
+        }
+
+        function loadRestoreState() {
+            try {
+                const raw = localStorage.getItem(RESTORE_STORAGE_KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch (err) {
+                return null;
+            }
+        }
+
+        function saveRestoreState(payload) {
+            try {
+                localStorage.setItem(RESTORE_STORAGE_KEY, JSON.stringify(payload));
+            } catch (err) {
+                // ignore storage errors
+            }
+        }
+
+        function clearRestoreState() {
+            localStorage.removeItem(RESTORE_STORAGE_KEY);
+        }
+
+        let localPlayerId = getOrCreatePlayerId();
+        const socket = io({ auth: { playerId: localPlayerId } });
 
         // --- FILTER LOGIC ---
         function getUniqueValues(key) {
@@ -392,7 +425,22 @@ const CARD_DATABASE = [];
         }
 
         function leaveRoom() {
+            clearRestoreState();
             window.location.reload();
+        }
+
+        function attemptRestoreSession() {
+            const saved = loadRestoreState();
+            if (!saved || saved.lastScene !== 'game' || !saved.roomId) return;
+            const playerName = document.getElementById('player-name')?.value || '';
+            socket.emit('lobby:join', { roomId: saved.roomId, playerName }, (result) => {
+                if (!result?.ok) {
+                    console.warn('[restore] rejoin failed -> fallback lobby');
+                    clearRestoreState();
+                    navigateTo('lobby');
+                    refreshLobby();
+                }
+            });
         }
 
         let globalUidCounter = 0;
@@ -3263,9 +3311,11 @@ const CARD_DATABASE = [];
             checkWin() {
                 if (this.player.hp <= 0) {
                     alert("Você Perdeu!");
+                    clearRestoreState();
                     location.reload();
                 } else if (this.opp.hp <= 0) {
                     alert("Você Venceu!");
+                    clearRestoreState();
                     location.reload();
                 }
             }
@@ -3330,6 +3380,10 @@ const CARD_DATABASE = [];
             }
 
             navigateTo('game');
+            const restoreRoomId = currentRoomId || loadRestoreState()?.roomId;
+            if (restoreRoomId) {
+                saveRestoreState({ roomId: restoreRoomId, playerId: localPlayerId, lastScene: 'game' });
+            }
         };
 
         const patchGameActions = () => {
@@ -3364,7 +3418,7 @@ const CARD_DATABASE = [];
         patchGameActions();
 
         socket.on('connect', () => {
-            localPlayerId = socket.id;
+            // keep localPlayerId from storage for rejoin/match ownership
         });
 
         socket.on('lobby:list', (rooms) => {
@@ -3375,6 +3429,7 @@ const CARD_DATABASE = [];
             if (!room) return;
             renderRoom(room);
             navigateTo('room');
+            saveRestoreState({ roomId: room.id, playerId: localPlayerId, lastScene: 'room' });
             const readyButton = document.getElementById('btn-ready');
             const me = room.players.find(player => player.id === localPlayerId);
             if (me) {
@@ -5223,4 +5278,5 @@ const arena = document.getElementById('arena-overlay');
             navigateTo('menu');
             ui.bindGraveyardClicks();
             game.initGrid();
+            attemptRestoreSession();
         };

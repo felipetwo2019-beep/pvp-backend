@@ -25,8 +25,8 @@ const createRoom = ({ name, owner }) => {
 const joinRoom = (roomId, player) => {
   const room = rooms.get(roomId);
   if (!room) return { error: 'Sala não encontrada.' };
-  if (room.players.length >= 2) return { error: 'Sala cheia.' };
   if (room.players.some(p => p.id === player.id)) return { room };
+  if (room.players.length >= 2) return { error: 'Sala cheia.' };
   room.players.push({ id: player.id, name: player.name, ready: false });
   return { room };
 };
